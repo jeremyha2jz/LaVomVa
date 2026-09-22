@@ -427,3 +427,8 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+# Vite / web
+dist
+dist-ssr
+*.local
+.DS_Store
