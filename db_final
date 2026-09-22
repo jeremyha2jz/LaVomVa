@@ -1,1 +1,575 @@
+-- =====================================================================
+-- BASE DE DATOS: Plataforma de Tickets Digitales e Inventario de Combustible
+-- Basado en SRS Ticket Digitales v1.0 (Agosto 2026)
+-- Motor: PostgreSQL 14+
+-- Versión fusionada: combina el script inicial + el script alterno,
+-- corrigiendo los huecos encontrados en ambos.
+-- =====================================================================
+
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+-- =====================================================================
+-- 1. CATÁLOGOS Y SEGURIDAD (RF-01, RS-01, RS-02)
+-- =====================================================================
+
+CREATE TABLE roles (
+    id_role         BIGSERIAL PRIMARY KEY,
+    nombre          VARCHAR(50) NOT NULL UNIQUE,
+    descripcion     VARCHAR(200),
+    activo          BOOLEAN NOT NULL DEFAULT TRUE,
+    creado_en       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE usuarios (
+    id_usuario      BIGSERIAL PRIMARY KEY,
+    nombre_usuario  VARCHAR(80) NOT NULL UNIQUE,
+    correo          VARCHAR(150) NOT NULL UNIQUE,
+    password_hash   TEXT NOT NULL,
+    nombre_completo VARCHAR(150) NOT NULL,
+    telefono        VARCHAR(25),
+    activo          BOOLEAN NOT NULL DEFAULT TRUE,
+    mfa_habilitado  BOOLEAN NOT NULL DEFAULT FALSE,
+    ultimo_acceso   TIMESTAMP,
+    creado_en       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    actualizado_en  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabla puente: un usuario puede tener más de un rol (RBAC real)
+CREATE TABLE usuario_roles (
+    id_usuario      BIGINT NOT NULL REFERENCES usuarios(id_usuario) ON DELETE CASCADE,
+    id_role         BIGINT NOT NULL REFERENCES roles(id_role) ON DELETE CASCADE,
+    asignado_en     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id_usuario, id_role)
+);
+
+-- =====================================================================
+-- 2. ESTRUCTURA ORGANIZACIONAL (RF-02, RF-03, RF-04)
+-- =====================================================================
+
+CREATE TABLE departamentos (
+    id_departamento BIGSERIAL PRIMARY KEY,
+    codigo          VARCHAR(20) UNIQUE,
+    nombre          VARCHAR(100) NOT NULL UNIQUE,
+    descripcion     VARCHAR(250),
+    activo          BOOLEAN NOT NULL DEFAULT TRUE,
+    creado_en       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE empleados (
+    id_empleado     BIGSERIAL PRIMARY KEY,
+    codigo_empleado VARCHAR(30) NOT NULL UNIQUE,
+    nombre_completo VARCHAR(150) NOT NULL,
+    cedula          VARCHAR(20) NOT NULL UNIQUE,
+    id_departamento BIGINT NOT NULL REFERENCES departamentos(id_departamento),
+    cargo           VARCHAR(100),
+    correo          VARCHAR(150),
+    telefono_movil  VARCHAR(25),
+    activo          BOOLEAN NOT NULL DEFAULT TRUE,
+    creado_en       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    actualizado_en  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE tipos_combustible (
+    id_tipo_combustible BIGSERIAL PRIMARY KEY,
+    nombre              VARCHAR(50) NOT NULL UNIQUE,
+    descripcion         VARCHAR(150),
+    activo              BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+CREATE TABLE vehiculos (
+    id_vehiculo         BIGSERIAL PRIMARY KEY,
+    placa                VARCHAR(20) NOT NULL UNIQUE,
+    ficha                VARCHAR(30) NOT NULL UNIQUE,
+    marca                VARCHAR(60) NOT NULL,
+    modelo               VARCHAR(60) NOT NULL,
+    anio                 SMALLINT,
+    tipo                 VARCHAR(60),
+    id_departamento      BIGINT NOT NULL REFERENCES departamentos(id_departamento),
+    capacidad_tanque_galones NUMERIC(10,2),
+    odometro_km          NUMERIC(12,2) NOT NULL DEFAULT 0,
+    activo               BOOLEAN NOT NULL DEFAULT TRUE,
+    creado_en            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    actualizado_en       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_vehiculo_anio CHECK (anio IS NULL OR anio BETWEEN 1900 AND 2200),
+    CONSTRAINT chk_capacidad_tanque CHECK (capacidad_tanque_galones IS NULL OR capacidad_tanque_galones > 0),
+    CONSTRAINT chk_odometro CHECK (odometro_km >= 0)
+);
+
+-- =====================================================================
+-- 3. ESTACIONES, TANQUES Y PROVEEDORES (RF-14, RF-16)
+-- =====================================================================
+
+CREATE TABLE estaciones (
+    id_estacion     BIGSERIAL PRIMARY KEY,
+    nombre          VARCHAR(120) NOT NULL,
+    ubicacion       VARCHAR(250),
+    activo          BOOLEAN NOT NULL DEFAULT TRUE,
+    creado_en       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE tanques (
+    id_tanque                  BIGSERIAL PRIMARY KEY,
+    codigo                     VARCHAR(30) NOT NULL UNIQUE,
+    nombre                     VARCHAR(100),
+    id_estacion                BIGINT NOT NULL REFERENCES estaciones(id_estacion),
+    id_tipo_combustible        BIGINT NOT NULL REFERENCES tipos_combustible(id_tipo_combustible),
+    capacidad_galones          NUMERIC(12,2) NOT NULL,
+    existencia_actual_galones  NUMERIC(12,2) NOT NULL DEFAULT 0,
+    nivel_critico_galones      NUMERIC(12,2) NOT NULL DEFAULT 0,
+    activo                     BOOLEAN NOT NULL DEFAULT TRUE,
+    creado_en                  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_tanque_capacidad CHECK (capacidad_galones > 0),
+    CONSTRAINT chk_tanque_existencia CHECK (existencia_actual_galones >= 0 AND existencia_actual_galones <= capacidad_galones),
+    CONSTRAINT chk_tanque_nivel_critico CHECK (nivel_critico_galones >= 0)
+);
+
+CREATE TABLE proveedores (
+    id_proveedor    BIGSERIAL PRIMARY KEY,
+    rnc             VARCHAR(20) UNIQUE,
+    nombre          VARCHAR(150) NOT NULL,
+    telefono        VARCHAR(25),
+    correo          VARCHAR(150),
+    activo          BOOLEAN NOT NULL DEFAULT TRUE,
+    creado_en       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =====================================================================
+-- 4. SOLICITUDES DE COMBUSTIBLE (RF-05)
+-- =====================================================================
+
+CREATE TABLE solicitudes_combustible (
+    id_solicitud                BIGSERIAL PRIMARY KEY,
+    id_empleado                 BIGINT NOT NULL REFERENCES empleados(id_empleado),
+    id_vehiculo                 BIGINT NOT NULL REFERENCES vehiculos(id_vehiculo),
+    id_departamento             BIGINT NOT NULL REFERENCES departamentos(id_departamento),
+    id_tipo_combustible         BIGINT NOT NULL REFERENCES tipos_combustible(id_tipo_combustible),
+    cantidad_solicitada_galones NUMERIC(10,2) NOT NULL,
+    cantidad_autorizada_galones NUMERIC(10,2),
+    fecha_solicitud             TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    fecha_vencimiento           TIMESTAMP,
+    tipo_solicitud               VARCHAR(20) NOT NULL DEFAULT 'MANUAL'
+                                  CHECK (tipo_solicitud IN ('MANUAL','AUTOMATICA','RECURRENTE')),
+    frecuencia                   VARCHAR(50),
+    estado                       VARCHAR(20) NOT NULL DEFAULT 'PENDIENTE'
+                                  CHECK (estado IN ('PENDIENTE','APROBADA','RECHAZADA','CANCELADA')),
+    motivo                       TEXT,
+    id_usuario_creador           BIGINT REFERENCES usuarios(id_usuario),
+    id_usuario_aprobador         BIGINT REFERENCES usuarios(id_usuario),
+    fecha_aprobacion             TIMESTAMP,
+    creado_en                    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    actualizado_en               TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_solicitud_cantidad CHECK (cantidad_solicitada_galones > 0),
+    CONSTRAINT chk_solicitud_autorizada CHECK (cantidad_autorizada_galones IS NULL OR cantidad_autorizada_galones > 0)
+);
+
+-- =====================================================================
+-- 5. CONFIGURACIÓN Y TICKETS DIGITALES (RF-06, RF-07, RF-08, RF-10)
+-- =====================================================================
+
+-- Fila única de configuración para la numeración de tickets (con lock de
+-- concurrencia en la función, para que dos despachos simultáneos no generen
+-- el mismo número).
+CREATE TABLE configuracion_tickets (
+    id_configuracion    BIGSERIAL PRIMARY KEY,
+    prefijo             VARCHAR(20) NOT NULL DEFAULT 'COM',
+    reinicio_anual      BOOLEAN NOT NULL DEFAULT TRUE,
+    secuencia_actual    BIGINT NOT NULL DEFAULT 0,
+    anio_secuencia      INTEGER NOT NULL DEFAULT EXTRACT(YEAR FROM CURRENT_DATE),
+    actualizado_en      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO configuracion_tickets (prefijo, reinicio_anual) VALUES ('COM', TRUE);
+
+CREATE TABLE tickets (
+    id_ticket                    UUID PRIMARY KEY DEFAULT gen_random_uuid(), -- RF-06: identificador único (UUID)
+    id_solicitud                 BIGINT NOT NULL UNIQUE REFERENCES solicitudes_combustible(id_solicitud),
+    numero_secuencial            VARCHAR(40) NOT NULL UNIQUE, -- RF-08: ej. COM-2026-000001
+    id_empleado                  BIGINT NOT NULL REFERENCES empleados(id_empleado),
+    id_vehiculo                  BIGINT NOT NULL REFERENCES vehiculos(id_vehiculo),
+    id_departamento              BIGINT NOT NULL REFERENCES departamentos(id_departamento),
+    id_tipo_combustible          BIGINT NOT NULL REFERENCES tipos_combustible(id_tipo_combustible),
+    cantidad_autorizada_galones  NUMERIC(10,2) NOT NULL,
+    fecha_creacion               TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    fecha_vencimiento            TIMESTAMP NOT NULL,
+    estado                       VARCHAR(25) NOT NULL DEFAULT 'CREADO'
+                                  CHECK (estado IN ('CREADO','ENVIADO','PENDIENTE','PROXIMO_A_VENCER','VENCIDO','CONSUMIDO','ANULADO')),
+    -- Seguridad del QR (RF-07 / RS-04): hash de los datos protegidos + token + firma
+    qr_hash                      VARCHAR(64) NOT NULL UNIQUE,
+    qr_token                     TEXT NOT NULL UNIQUE,
+    qr_firma                     TEXT,
+    consumido_en                 TIMESTAMP,
+    anulado_en                   TIMESTAMP,
+    motivo_anulacion             TEXT,
+    id_usuario_emisor            BIGINT REFERENCES usuarios(id_usuario),
+    ruta_pdf                     VARCHAR(255),
+    creado_en                    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_ticket_cantidad CHECK (cantidad_autorizada_galones > 0),
+    CONSTRAINT chk_ticket_fechas CHECK (fecha_vencimiento > fecha_creacion)
+);
+
+-- Historial de envío por canal (RF-09). Se deja como bitácora aparte en vez
+-- de un simple booleano en "tickets", para poder ver reintentos y fallos
+-- de integración (RF-23: "Fallo de integración").
+CREATE TABLE envios_ticket (
+    id_envio        BIGSERIAL PRIMARY KEY,
+    id_ticket       UUID NOT NULL REFERENCES tickets(id_ticket),
+    canal           VARCHAR(20) NOT NULL CHECK (canal IN ('CORREO','SMS')),
+    destino         VARCHAR(150) NOT NULL,
+    estado_envio    VARCHAR(20) NOT NULL DEFAULT 'PENDIENTE'
+                     CHECK (estado_envio IN ('PENDIENTE','ENVIADO','FALLIDO')),
+    detalle_error   TEXT,
+    fecha_envio     TIMESTAMP
+);
+
+-- =====================================================================
+-- 6. DESPACHOS (RF-12, RF-13)
+-- =====================================================================
+
+-- UNIQUE en id_ticket: un ticket solo se puede despachar una vez.
+-- Esto es lo que garantiza "no reutilizable" del RF-07 a nivel de base
+-- de datos, sin necesitar una columna/bandera aparte.
+CREATE TABLE despachos (
+    id_despacho             BIGSERIAL PRIMARY KEY,
+    id_ticket                UUID NOT NULL UNIQUE REFERENCES tickets(id_ticket),
+    id_tanque                BIGINT NOT NULL REFERENCES tanques(id_tanque),
+    id_estacion               BIGINT NOT NULL REFERENCES estaciones(id_estacion),
+    id_operador                BIGINT NOT NULL REFERENCES usuarios(id_usuario),
+    fecha_hora                 TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    galones_servidos           NUMERIC(10,2) NOT NULL,
+    odometro_km                NUMERIC(12,2),
+    identidad_confirmada       BOOLEAN NOT NULL DEFAULT FALSE,
+    observaciones               TEXT,
+    creado_en                   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_despacho_galones CHECK (galones_servidos > 0),
+    CONSTRAINT chk_despacho_odometro CHECK (odometro_km IS NULL OR odometro_km >= 0)
+);
+
+-- =====================================================================
+-- 7. RECEPCIÓN E INVENTARIO (RF-14, RF-15, RF-16, RF-17)
+-- =====================================================================
+
+CREATE TABLE recepciones_combustible (
+    id_recepcion         BIGSERIAL PRIMARY KEY,
+    id_proveedor          BIGINT NOT NULL REFERENCES proveedores(id_proveedor),
+    numero_factura         VARCHAR(60) NOT NULL,
+    fecha_recepcion         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    id_usuario_receptor     BIGINT NOT NULL REFERENCES usuarios(id_usuario),
+    observaciones            TEXT,
+    creado_en                TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Una recepción/factura puede abastecer más de un tanque.
+CREATE TABLE detalle_recepciones (
+    id_detalle              BIGSERIAL PRIMARY KEY,
+    id_recepcion              BIGINT NOT NULL REFERENCES recepciones_combustible(id_recepcion) ON DELETE CASCADE,
+    id_tanque                 BIGINT NOT NULL REFERENCES tanques(id_tanque),
+    volumen_recibido_galones  NUMERIC(12,2) NOT NULL,
+    costo_unitario             NUMERIC(12,4),
+    creado_en                  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_recepcion_volumen CHECK (volumen_recibido_galones > 0),
+    CONSTRAINT chk_recepcion_costo CHECK (costo_unitario IS NULL OR costo_unitario >= 0)
+);
+
+-- Libro mayor de inventario: TODO movimiento de combustible pasa por aquí,
+-- ya sea generado a mano (ajustes) o automáticamente por triggers desde
+-- despachos y detalle_recepciones (ver sección 9).
+CREATE TABLE movimientos_inventario (
+    id_movimiento        BIGSERIAL PRIMARY KEY,
+    id_tanque             BIGINT NOT NULL REFERENCES tanques(id_tanque),
+    tipo_movimiento        VARCHAR(25) NOT NULL
+                            CHECK (tipo_movimiento IN ('ENTRADA','SALIDA','AJUSTE_POSITIVO','AJUSTE_NEGATIVO','TRANSFERENCIA_ENTRADA','TRANSFERENCIA_SALIDA','MERMA')),
+    cantidad_galones        NUMERIC(12,2) NOT NULL,
+    existencia_anterior      NUMERIC(12,2),
+    existencia_nueva          NUMERIC(12,2),
+    referencia_tipo            VARCHAR(40), -- 'DESPACHO','RECEPCION','AJUSTE_MANUAL'
+    referencia_id                VARCHAR(100),
+    motivo                        TEXT,
+    id_usuario                    BIGINT REFERENCES usuarios(id_usuario),
+    fecha_hora                     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    creado_en                       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_movimiento_cantidad CHECK (cantidad_galones > 0)
+);
+
+-- =====================================================================
+-- 8. CIERRES DIARIOS (RF-18)
+-- =====================================================================
+
+CREATE TABLE cierres_diarios (
+    id_cierre                        BIGSERIAL PRIMARY KEY,
+    id_estacion                       BIGINT NOT NULL REFERENCES estaciones(id_estacion),
+    fecha                              DATE NOT NULL,
+    inventario_inicial_galones          NUMERIC(12,2) NOT NULL DEFAULT 0,
+    volumen_recibido_galones             NUMERIC(12,2) NOT NULL DEFAULT 0,
+    volumen_despachado_galones            NUMERIC(12,2) NOT NULL DEFAULT 0,
+    mermas_galones                         NUMERIC(12,2) NOT NULL DEFAULT 0,
+    ajustes_galones                         NUMERIC(12,2) NOT NULL DEFAULT 0,
+    inventario_final_galones                 NUMERIC(12,2) NOT NULL DEFAULT 0,
+    diferencia_galones                        NUMERIC(12,2) NOT NULL DEFAULT 0,
+    id_usuario_cierre                          BIGINT NOT NULL REFERENCES usuarios(id_usuario),
+    ruta_acta_pdf                               VARCHAR(255),
+    observaciones                                TEXT,
+    cerrado_en                                    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_cierre_estacion_fecha UNIQUE (id_estacion, fecha)
+);
+
+-- =====================================================================
+-- 9. NOTIFICACIONES Y AUDITORÍA (RF-21, RF-23, RS-06)
+-- =====================================================================
+
+CREATE TABLE notificaciones (
+    id_notificacion     BIGSERIAL PRIMARY KEY,
+    id_usuario            BIGINT REFERENCES usuarios(id_usuario),
+    tipo                   VARCHAR(40) NOT NULL, -- TICKET_PROXIMO_A_VENCER, TICKET_VENCIDO, INVENTARIO_BAJO, FALLO_INTEGRACION, AJUSTE_INVENTARIO
+    titulo                  VARCHAR(150) NOT NULL,
+    mensaje                   TEXT NOT NULL,
+    canal                      VARCHAR(20) NOT NULL DEFAULT 'SISTEMA' CHECK (canal IN ('SISTEMA','EMAIL','SMS')),
+    estado                     VARCHAR(20) NOT NULL DEFAULT 'PENDIENTE' CHECK (estado IN ('PENDIENTE','ENVIADA','LEIDA','ERROR')),
+    fecha_creacion               TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    fecha_envio                    TIMESTAMP,
+    referencia_tipo                  VARCHAR(40),
+    referencia_id                     VARCHAR(100)
+);
+
+CREATE TABLE auditoria (
+    id_auditoria        BIGSERIAL PRIMARY KEY,
+    id_usuario            BIGINT REFERENCES usuarios(id_usuario),
+    accion                  VARCHAR(80) NOT NULL,
+    entidad                   VARCHAR(80) NOT NULL,
+    entidad_id                  VARCHAR(100),
+    datos_anteriores              JSONB,
+    datos_nuevos                    JSONB,
+    direccion_ip                     INET,
+    fecha_hora                        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    detalle                             TEXT
+);
+
+-- =====================================================================
+-- 10. FUNCIONES Y TRIGGERS
+-- =====================================================================
+
+-- 10.1 actualizado_en automático
+CREATE OR REPLACE FUNCTION fn_actualizar_timestamp()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.actualizado_en = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_usuarios_actualizado BEFORE UPDATE ON usuarios FOR EACH ROW EXECUTE FUNCTION fn_actualizar_timestamp();
+CREATE TRIGGER trg_empleados_actualizado BEFORE UPDATE ON empleados FOR EACH ROW EXECUTE FUNCTION fn_actualizar_timestamp();
+CREATE TRIGGER trg_vehiculos_actualizado BEFORE UPDATE ON vehiculos FOR EACH ROW EXECUTE FUNCTION fn_actualizar_timestamp();
+CREATE TRIGGER trg_solicitudes_actualizado BEFORE UPDATE ON solicitudes_combustible FOR EACH ROW EXECUTE FUNCTION fn_actualizar_timestamp();
+
+-- 10.2 Numeración de tickets (RF-08), con bloqueo de fila para evitar
+-- duplicados si dos tickets se crean al mismo tiempo.
+CREATE OR REPLACE FUNCTION fn_generar_numero_ticket()
+RETURNS VARCHAR AS $$
+DECLARE
+    v_prefijo VARCHAR(20);
+    v_reinicio BOOLEAN;
+    v_secuencia BIGINT;
+    v_anio INTEGER;
+BEGIN
+    SELECT prefijo, reinicio_anual, secuencia_actual, anio_secuencia
+      INTO v_prefijo, v_reinicio, v_secuencia, v_anio
+    FROM configuracion_tickets
+    ORDER BY id_configuracion LIMIT 1
+    FOR UPDATE;
+
+    IF v_reinicio = TRUE AND v_anio <> EXTRACT(YEAR FROM CURRENT_DATE)::INTEGER THEN
+        v_secuencia := 0;
+        v_anio := EXTRACT(YEAR FROM CURRENT_DATE)::INTEGER;
+    END IF;
+
+    v_secuencia := v_secuencia + 1;
+
+    UPDATE configuracion_tickets
+       SET secuencia_actual = v_secuencia, anio_secuencia = v_anio, actualizado_en = CURRENT_TIMESTAMP
+     WHERE id_configuracion = (SELECT id_configuracion FROM configuracion_tickets ORDER BY id_configuracion LIMIT 1);
+
+    RETURN v_prefijo || '-' || v_anio || '-' || LPAD(v_secuencia::TEXT, 6, '0');
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION fn_ticket_numero_automatico()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.numero_secuencial IS NULL OR BTRIM(NEW.numero_secuencial) = '' THEN
+        NEW.numero_secuencial := fn_generar_numero_ticket();
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_ticket_numero_automatico
+BEFORE INSERT ON tickets
+FOR EACH ROW EXECUTE FUNCTION fn_ticket_numero_automatico();
+
+-- 10.3 Núcleo del inventario: valida y aplica CUALQUIER movimiento
+-- (entrada, salida, ajuste, merma, transferencia) contra el tanque.
+CREATE OR REPLACE FUNCTION fn_aplicar_movimiento_inventario()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_existencia NUMERIC(12,2);
+    v_capacidad NUMERIC(12,2);
+    v_nueva NUMERIC(12,2);
+BEGIN
+    SELECT existencia_actual_galones, capacidad_galones
+      INTO v_existencia, v_capacidad
+    FROM tanques WHERE id_tanque = NEW.id_tanque
+    FOR UPDATE;
+
+    IF NEW.tipo_movimiento IN ('ENTRADA','AJUSTE_POSITIVO','TRANSFERENCIA_ENTRADA') THEN
+        v_nueva := v_existencia + NEW.cantidad_galones;
+    ELSE
+        v_nueva := v_existencia - NEW.cantidad_galones;
+    END IF;
+
+    IF v_nueva < 0 THEN
+        RAISE EXCEPTION 'Inventario insuficiente en el tanque %', NEW.id_tanque;
+    END IF;
+    IF v_nueva > v_capacidad THEN
+        RAISE EXCEPTION 'El movimiento excede la capacidad del tanque %', NEW.id_tanque;
+    END IF;
+
+    NEW.existencia_anterior := v_existencia;
+    NEW.existencia_nueva := v_nueva;
+
+    UPDATE tanques SET existencia_actual_galones = v_nueva WHERE id_tanque = NEW.id_tanque;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_aplicar_movimiento_inventario
+BEFORE INSERT ON movimientos_inventario
+FOR EACH ROW EXECUTE FUNCTION fn_aplicar_movimiento_inventario();
+
+-- 10.4 Puente automático: un despacho SIEMPRE genera su movimiento de
+-- salida, y marca el ticket como consumido. Así nadie tiene que acordarse
+-- de insertar en movimientos_inventario a mano desde el backend.
+CREATE OR REPLACE FUNCTION fn_registrar_movimiento_por_despacho()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO movimientos_inventario (id_tanque, tipo_movimiento, cantidad_galones, referencia_tipo, referencia_id, id_usuario)
+    VALUES (NEW.id_tanque, 'SALIDA', NEW.galones_servidos, 'DESPACHO', NEW.id_despacho::TEXT, NEW.id_operador);
+
+    UPDATE tickets SET estado = 'CONSUMIDO', consumido_en = NOW() WHERE id_ticket = NEW.id_ticket;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_despacho_movimiento
+AFTER INSERT ON despachos
+FOR EACH ROW EXECUTE FUNCTION fn_registrar_movimiento_por_despacho();
+
+-- 10.5 Puente automático equivalente para recepciones de combustible.
+CREATE OR REPLACE FUNCTION fn_registrar_movimiento_por_recepcion()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO movimientos_inventario (id_tanque, tipo_movimiento, cantidad_galones, referencia_tipo, referencia_id, id_usuario)
+    VALUES (NEW.id_tanque, 'ENTRADA', NEW.volumen_recibido_galones, 'RECEPCION', NEW.id_detalle::TEXT,
+            (SELECT id_usuario_receptor FROM recepciones_combustible WHERE id_recepcion = NEW.id_recepcion));
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_recepcion_movimiento
+AFTER INSERT ON detalle_recepciones
+FOR EACH ROW EXECUTE FUNCTION fn_registrar_movimiento_por_recepcion();
+
+-- =====================================================================
+-- 11. ÍNDICES
+-- =====================================================================
+
+CREATE INDEX idx_empleados_departamento ON empleados(id_departamento);
+CREATE INDEX idx_vehiculos_departamento ON vehiculos(id_departamento);
+CREATE INDEX idx_solicitudes_empleado ON solicitudes_combustible(id_empleado);
+CREATE INDEX idx_solicitudes_vehiculo ON solicitudes_combustible(id_vehiculo);
+CREATE INDEX idx_solicitudes_estado ON solicitudes_combustible(estado);
+CREATE INDEX idx_tickets_estado ON tickets(estado);
+CREATE INDEX idx_tickets_empleado ON tickets(id_empleado);
+CREATE INDEX idx_tickets_vehiculo ON tickets(id_vehiculo);
+CREATE INDEX idx_tickets_fecha_vencimiento ON tickets(fecha_vencimiento);
+CREATE INDEX idx_despachos_fecha ON despachos(fecha_hora);
+CREATE INDEX idx_movimientos_tanque_fecha ON movimientos_inventario(id_tanque, fecha_hora);
+CREATE INDEX idx_auditoria_usuario_fecha ON auditoria(id_usuario, fecha_hora);
+CREATE INDEX idx_auditoria_entidad ON auditoria(entidad, entidad_id);
+
+-- =====================================================================
+-- 12. DATOS INICIALES
+-- =====================================================================
+
+-- Se incluye "Solicitante" aparte de los "roles mínimos" del RF-01,
+-- porque la sección 3.4 del SRS sí lo define como actor del sistema.
+-- Vale la pena confirmarlo con el resto del equipo / el profesor.
+INSERT INTO roles (nombre, descripcion) VALUES
+('ADMINISTRADOR', 'Administración general del sistema'),
+('SUPERVISOR', 'Gestión de solicitudes, aprobaciones e inventario'),
+('DESPACHADOR', 'Validación de tickets y despacho de combustible'),
+('SOLICITANTE', 'Solicita combustible y consulta estado de tickets'),
+('AUDITOR', 'Consulta, reportes y revisión de trazabilidad'),
+('CONSULTA', 'Acceso de solo consulta')
+ON CONFLICT (nombre) DO NOTHING;
+
+INSERT INTO tipos_combustible (nombre, descripcion) VALUES
+('GASOLINA REGULAR', 'Gasolina regular'),
+('GASOLINA PREMIUM', 'Gasolina premium'),
+('DIESEL', 'Combustible diésel')
+ON CONFLICT (nombre) DO NOTHING;
+
+-- =====================================================================
+-- 13. VISTAS PARA REPORTES Y DASHBOARD (RF-19, RF-22)
+-- =====================================================================
+
+CREATE OR REPLACE VIEW vw_tickets_detalle AS
+SELECT
+    t.id_ticket, t.numero_secuencial, t.estado, t.fecha_creacion, t.fecha_vencimiento,
+    e.codigo_empleado, e.nombre_completo AS empleado,
+    v.placa, v.ficha,
+    d.nombre AS departamento,
+    tc.nombre AS tipo_combustible,
+    t.cantidad_autorizada_galones
+FROM tickets t
+JOIN empleados e ON e.id_empleado = t.id_empleado
+JOIN vehiculos v ON v.id_vehiculo = t.id_vehiculo
+JOIN departamentos d ON d.id_departamento = t.id_departamento
+JOIN tipos_combustible tc ON tc.id_tipo_combustible = t.id_tipo_combustible;
+
+CREATE OR REPLACE VIEW vw_inventario_actual AS
+SELECT
+    ta.id_tanque, ta.codigo AS tanque, es.nombre AS estacion, tc.nombre AS tipo_combustible,
+    ta.capacidad_galones, ta.existencia_actual_galones, ta.nivel_critico_galones,
+    CASE WHEN ta.existencia_actual_galones <= ta.nivel_critico_galones THEN 'CRITICO' ELSE 'NORMAL' END AS estado_inventario
+FROM tanques ta
+JOIN estaciones es ON es.id_estacion = ta.id_estacion
+JOIN tipos_combustible tc ON tc.id_tipo_combustible = ta.id_tipo_combustible;
+
+CREATE OR REPLACE VIEW vw_tickets_alerta AS
+SELECT
+    id_ticket, numero_secuencial, id_empleado, id_vehiculo, fecha_vencimiento, estado,
+    CASE
+        WHEN fecha_vencimiento < NOW() AND estado NOT IN ('CONSUMIDO','ANULADO') THEN 'VENCIDO'
+        WHEN fecha_vencimiento <= NOW() + INTERVAL '2 days' AND estado NOT IN ('CONSUMIDO','ANULADO') THEN 'PROXIMO_A_VENCER'
+        ELSE estado
+    END AS estado_calculado
+FROM tickets;
+
+CREATE OR REPLACE VIEW vw_consumo_por_departamento AS
+SELECT dep.id_departamento, dep.nombre AS departamento, COALESCE(SUM(d.galones_servidos), 0) AS total_galones_despachados
+FROM departamentos dep
+LEFT JOIN tickets t ON t.id_departamento = dep.id_departamento
+LEFT JOIN despachos d ON d.id_ticket = t.id_ticket
+GROUP BY dep.id_departamento, dep.nombre;
+
+CREATE OR REPLACE VIEW vw_consumo_por_vehiculo AS
+SELECT v.id_vehiculo, v.placa, v.ficha, COALESCE(SUM(d.galones_servidos), 0) AS total_galones_despachados
+FROM vehiculos v
+LEFT JOIN tickets t ON t.id_vehiculo = v.id_vehiculo
+LEFT JOIN despachos d ON d.id_ticket = t.id_ticket
+GROUP BY v.id_vehiculo, v.placa, v.ficha;
+
+-- =====================================================================
+-- FIN DEL SCRIPT
+-- =====================================================================
 
