@@ -1,0 +1,6 @@
+@TicketsCombustible.Api_HostAddress = http://localhost:5007
+
+GET {{TicketsCombustible.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

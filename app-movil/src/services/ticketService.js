@@ -3,7 +3,8 @@ import { usuarioMock, ticketsMock, listaTicketsMock } from './mockData.js';
 
 const USE_MOCK = false;
 
-const API_URL = "https://tributary-irritate-subtype.ngrok-free.dev/api";
+// La PWA y la API se publican juntas mediante el proxy de Vite.
+const API_URL = "/api";
 
 export async function login(usuario, contrasena) {
   if (USE_MOCK) {

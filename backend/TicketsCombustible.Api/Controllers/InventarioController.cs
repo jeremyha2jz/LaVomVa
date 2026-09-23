@@ -1,0 +1,36 @@
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using TicketsCombustible.Api.Data;
+using TicketsCombustible.Api.Models;
+
+namespace TicketsCombustible.Api.Controllers;
+
+[ApiController]
+[Route("api/inventario")]
+public class InventarioController(TicketsCombustibleDbContext db) : ControllerBase
+{
+    [HttpGet]
+    public async Task<IActionResult> Consultar() => Ok(await db.Tanques.Where(x => x.Activo).OrderBy(x => x.Codigo).Select(x => new { x.Id, x.Codigo, x.EstacionId, x.TipoCombustibleId, x.CapacidadGalones, x.ExistenciaActualGalones, disponibleGalones = x.ExistenciaActualGalones, espacioDisponibleGalones = x.CapacidadGalones - x.ExistenciaActualGalones }).ToListAsync());
+
+    [HttpGet("movimientos")]
+    public async Task<IActionResult> Movimientos([FromQuery] long? tanqueId)
+    {
+        var consulta = db.MovimientosInventario.AsNoTracking();
+        if (tanqueId.HasValue) consulta = consulta.Where(x => x.TanqueId == tanqueId.Value);
+        return Ok(await consulta.OrderByDescending(x => x.Id).Take(100).ToListAsync());
+    }
+
+    [HttpPost("ajustes")]
+    public async Task<IActionResult> Ajustar(AjusteInventarioRequest request)
+    {
+        if (request.CantidadGalones <= 0) return BadRequest("La cantidad debe ser mayor que cero.");
+        if (request.Tipo is not ("AJUSTE_POSITIVO" or "AJUSTE_NEGATIVO" or "MERMA")) return BadRequest("Tipo permitido: AJUSTE_POSITIVO, AJUSTE_NEGATIVO o MERMA.");
+        if (!await db.Tanques.AnyAsync(x => x.Id == request.TanqueId && x.Activo)) return NotFound("Tanque no encontrado o inactivo.");
+        if (!await db.Usuarios.AnyAsync(x => x.Id == request.UsuarioId && x.Activo)) return BadRequest("Usuario inválido.");
+        var movimiento = new MovimientoInventario { TanqueId = request.TanqueId, TipoMovimiento = request.Tipo, CantidadGalones = request.CantidadGalones, ReferenciaTipo = "AJUSTE_MANUAL", Motivo = request.Motivo, UsuarioId = request.UsuarioId, FechaHora = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified) };
+        db.MovimientosInventario.Add(movimiento); await db.SaveChangesAsync(); await db.Entry(movimiento).ReloadAsync();
+        return Created($"api/inventario/movimientos/{movimiento.Id}", movimiento);
+    }
+}
+
+public record AjusteInventarioRequest(long TanqueId, string Tipo, decimal CantidadGalones, string Motivo, long UsuarioId);

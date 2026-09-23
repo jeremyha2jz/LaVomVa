@@ -1,0 +1,13 @@
+# Compilación de .NET
+bin/
+obj/
+
+# Configuración privada de desarrollo
+appsettings.Development.json
+appsettings.Local.json
+
+# Archivos del editor
+.vs/
+.vscode/
+*.user
+*.suo
