@@ -17,9 +17,10 @@ public class SolicitudesController(TicketsCombustibleDbContext db) : ControllerB
     public async Task<IActionResult> Crear(CrearSolicitudRequest request)
     {
         if (request.CantidadSolicitadaGalones <= 0) return BadRequest("La cantidad solicitada debe ser mayor que cero.");
-        if (request.FechaVencimiento is { } vencimiento && vencimiento <= DateTime.UtcNow) return BadRequest("La fecha de vencimiento debe ser futura.");
+        DateTime? fechaVencimiento = request.FechaVencimiento is { } vence ? FechaSinZona(vence) : null;
+        if (fechaVencimiento <= DateTime.UtcNow) return BadRequest("La fecha de vencimiento debe ser futura.");
         if (!await db.Empleados.AnyAsync(x => x.Id == request.EmpleadoId && x.Activo) || !await db.Vehiculos.AnyAsync(x => x.Id == request.VehiculoId && x.Activo) || !await db.Departamentos.AnyAsync(x => x.Id == request.DepartamentoId && x.Activo) || !await db.TiposCombustible.AnyAsync(x => x.Id == request.TipoCombustibleId && x.Activo)) return BadRequest("Selecciona un empleado, vehículo, departamento y combustible válidos.");
-        var solicitud = new SolicitudCombustible { EmpleadoId = request.EmpleadoId, VehiculoId = request.VehiculoId, DepartamentoId = request.DepartamentoId, TipoCombustibleId = request.TipoCombustibleId, CantidadSolicitadaGalones = request.CantidadSolicitadaGalones, FechaVencimiento = request.FechaVencimiento is { } fecha ? DateTime.SpecifyKind(fecha, DateTimeKind.Unspecified) : null, UsuarioCreadorId = request.UsuarioCreadorId, TipoSolicitud = request.TipoSolicitud, Motivo = request.Motivo, Estado = EstadoSolicitud.PENDIENTE };
+        var solicitud = new SolicitudCombustible { EmpleadoId = request.EmpleadoId, VehiculoId = request.VehiculoId, DepartamentoId = request.DepartamentoId, TipoCombustibleId = request.TipoCombustibleId, CantidadSolicitadaGalones = request.CantidadSolicitadaGalones, FechaVencimiento = fechaVencimiento, UsuarioCreadorId = request.UsuarioCreadorId, TipoSolicitud = request.TipoSolicitud, Motivo = request.Motivo, Estado = EstadoSolicitud.PENDIENTE };
         db.Solicitudes.Add(solicitud); await db.SaveChangesAsync();
         return CreatedAtAction(nameof(Obtener), new { id = solicitud.Id }, solicitud);
     }
@@ -31,8 +32,9 @@ public class SolicitudesController(TicketsCombustibleDbContext db) : ControllerB
         if (solicitud is null) return NotFound();
         if (solicitud.Estado != EstadoSolicitud.PENDIENTE) return Conflict("Solo se puede aprobar una solicitud pendiente.");
         if (request.CantidadAutorizadaGalones <= 0 || request.CantidadAutorizadaGalones > solicitud.CantidadSolicitadaGalones) return BadRequest("La cantidad autorizada debe ser válida.");
-        if (request.FechaVencimiento <= DateTime.UtcNow) return BadRequest("La fecha de vencimiento debe ser futura.");
-        solicitud.CantidadAutorizadaGalones = request.CantidadAutorizadaGalones; solicitud.FechaVencimiento = DateTime.SpecifyKind(request.FechaVencimiento, DateTimeKind.Unspecified); solicitud.UsuarioAprobadorId = request.UsuarioAprobadorId; solicitud.FechaAprobacion = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified); solicitud.Estado = EstadoSolicitud.APROBADA;
+        var fechaVencimiento = FechaSinZona(request.FechaVencimiento);
+        if (fechaVencimiento <= DateTime.UtcNow) return BadRequest("La fecha de vencimiento debe ser futura.");
+        solicitud.CantidadAutorizadaGalones = request.CantidadAutorizadaGalones; solicitud.FechaVencimiento = fechaVencimiento; solicitud.UsuarioAprobadorId = request.UsuarioAprobadorId; solicitud.FechaAprobacion = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified); solicitud.Estado = EstadoSolicitud.APROBADA;
         await db.SaveChangesAsync(); return Ok(solicitud);
     }
 
@@ -46,4 +48,7 @@ public class SolicitudesController(TicketsCombustibleDbContext db) : ControllerB
         await db.SaveChangesAsync();
         return Ok(solicitud);
     }
+
+    // Las columnas son "timestamp without time zone" y guardan la hora en UTC: una fecha con zona (ej. "...Z" o "-04:00") se pasa a UTC antes de quitarle la zona, para no guardar la hora local como si fuera UTC.
+    private static DateTime FechaSinZona(DateTime fecha) => DateTime.SpecifyKind(fecha.Kind == DateTimeKind.Unspecified ? fecha : fecha.ToUniversalTime(), DateTimeKind.Unspecified);
 }
