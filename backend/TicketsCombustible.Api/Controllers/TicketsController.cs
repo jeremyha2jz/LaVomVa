@@ -14,9 +14,17 @@ namespace TicketsCombustible.Api.Controllers;
 public class TicketsController(TicketsCombustibleDbContext db, IConfiguration configuration) : ControllerBase
 {
     [HttpGet]
-    public async Task<IActionResult> Listar() => Ok((await db.Tickets.OrderByDescending(x => x.FechaCreacion).Select(x => new { id = x.NumeroSecuencial, estado = x.Estado, vehiculo = db.Vehiculos.Where(v => v.Id == x.VehiculoId).Select(v => v.Placa).FirstOrDefault(), cantidadAutorizada = x.CantidadAutorizadaGalones, x.FechaVencimiento }).ToListAsync()).Select(x => new { x.id, estado = NombreEstado(x.estado), x.vehiculo, x.cantidadAutorizada, fechaVencimiento = x.FechaVencimiento.ToString("yyyy-MM-dd") }));
+    public async Task<IActionResult> Listar() => Ok(await (
+        from ticket in db.Tickets.AsNoTracking()
+        join empleado in db.Empleados on ticket.EmpleadoId equals empleado.Id
+        join vehiculo in db.Vehiculos on ticket.VehiculoId equals vehiculo.Id
+        join departamento in db.Departamentos on ticket.DepartamentoId equals departamento.Id
+        join combustible in db.TiposCombustible on ticket.TipoCombustibleId equals combustible.Id
+        orderby ticket.FechaCreacion descending
+        select new { ticket.Id, ticket.NumeroSecuencial, ticket.Estado, Empleado = empleado.NombreCompleto, Vehiculo = vehiculo.Placa, Departamento = departamento.Nombre, TipoCombustible = combustible.Nombre, ticket.CantidadAutorizadaGalones, ticket.FechaCreacion, ticket.FechaVencimiento }
+    ).ToListAsync());
 
-    [HttpGet("{id:guid}")] public async Task<IActionResult> Obtener(Guid id) => await db.Tickets.FindAsync(id) is { } ticket ? Ok(ticket) : NotFound();
+    [HttpGet("{id:guid}")] public async Task<IActionResult> Obtener(Guid id) => await db.Tickets.Where(x => x.Id == id).Select(x => new { x.Id, x.NumeroSecuencial, x.Estado, x.EmpleadoId, x.VehiculoId, x.DepartamentoId, x.TipoCombustibleId, x.CantidadAutorizadaGalones, x.FechaCreacion, x.FechaVencimiento }).SingleOrDefaultAsync() is { } ticket ? Ok(ticket) : NotFound();
 
     [HttpGet("{id:guid}/qr")]
     public async Task<IActionResult> ObtenerQr(Guid id)
@@ -37,7 +45,8 @@ public class TicketsController(TicketsCombustibleDbContext db, IConfiguration co
         if (solicitud.Estado != EstadoSolicitud.APROBADA || solicitud.CantidadAutorizadaGalones is null || solicitud.FechaVencimiento is null) return Conflict("La solicitud debe estar aprobada y completa.");
         if (await db.Tickets.AnyAsync(x => x.SolicitudId == solicitud.Id)) return Conflict("La solicitud ya tiene un ticket.");
         var id = Guid.NewGuid(); var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
-        var secret = configuration["Qr:SigningSecret"] ?? "CAMBIAR-EN-DESARROLLO";
+        var secret = configuration["Qr:SigningSecret"];
+        if (string.IsNullOrWhiteSpace(secret) || secret.Length < 32) return Problem("Configura Qr:SigningSecret con al menos 32 caracteres antes de emitir tickets.");
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{id}|{solicitud.Id}|{token}|{secret}"))).ToLowerInvariant();
         var ticket = new Ticket { Id = id, SolicitudId = solicitud.Id, EmpleadoId = solicitud.EmpleadoId, VehiculoId = solicitud.VehiculoId, DepartamentoId = solicitud.DepartamentoId, TipoCombustibleId = solicitud.TipoCombustibleId, CantidadAutorizadaGalones = solicitud.CantidadAutorizadaGalones.Value, FechaVencimiento = solicitud.FechaVencimiento.Value, Estado = EstadoTicket.CREADO, QrToken = token, QrHash = hash };
         db.Tickets.Add(ticket); await db.SaveChangesAsync(); await db.Entry(ticket).ReloadAsync();
@@ -49,6 +58,10 @@ public class TicketsController(TicketsCombustibleDbContext db, IConfiguration co
     {
         var ticket = await db.Tickets.SingleOrDefaultAsync(x => x.QrToken == request.QrData);
         if (ticket is null) return Ok(new { valido = false, estado = "Anulado", ticket = (object?)null, mensajeError = "El ticket no existe o el QR es inválido" });
+        var secret = configuration["Qr:SigningSecret"];
+        if (string.IsNullOrWhiteSpace(secret) || secret.Length < 32) return Problem("Falta configurar el secreto QR.");
+        var expectedHash = SHA256.HashData(Encoding.UTF8.GetBytes($"{ticket.Id}|{ticket.SolicitudId}|{ticket.QrToken}|{secret}"));
+        if (!CryptographicOperations.FixedTimeEquals(expectedHash, Convert.FromHexString(ticket.QrHash))) return Ok(new { valido = false, estado = "Anulado", ticket = (object?)null, mensajeError = "La firma del QR es inválida" });
         var estado = ticket.FechaVencimiento <= DateTime.UtcNow && ticket.Estado is not EstadoTicket.CONSUMIDO and not EstadoTicket.ANULADO ? EstadoTicket.VENCIDO : ticket.Estado;
         if (estado is EstadoTicket.CONSUMIDO or EstadoTicket.ANULADO or EstadoTicket.VENCIDO) return Ok(new { valido = false, estado = NombreEstado(estado), ticket = (object?)null, mensajeError = MensajeEstado(estado) });
         var empleado = await db.Empleados.FindAsync(ticket.EmpleadoId); var vehiculo = await db.Vehiculos.FindAsync(ticket.VehiculoId); var departamento = await db.Departamentos.FindAsync(ticket.DepartamentoId); var combustible = await db.TiposCombustible.FindAsync(ticket.TipoCombustibleId);

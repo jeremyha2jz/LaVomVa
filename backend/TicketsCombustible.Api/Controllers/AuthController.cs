@@ -23,7 +23,7 @@ public class AuthController(TicketsCombustibleDbContext db, IConfiguration confi
         claims.AddRange(roles.Select(rol => new Claim(ClaimTypes.Role, rol)));
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(configuration["Jwt:Key"]!));
         var token = new JwtSecurityToken(claims: claims, expires: DateTime.UtcNow.AddHours(8), signingCredentials: new SigningCredentials(key, SecurityAlgorithms.HmacSha256));
-        return Ok(new { token = new JwtSecurityTokenHandler().WriteToken(token), nombre = usuario.NombreCompleto, rol = roles.FirstOrDefault() ?? "CONSULTA" });
+        return Ok(new { token = new JwtSecurityTokenHandler().WriteToken(token), id = usuario.Id, nombre = usuario.NombreCompleto, rol = roles.FirstOrDefault() ?? "CONSULTA" });
     }
 
     private static bool VerificarHash(string password, string almacenado)

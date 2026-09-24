@@ -1,0 +1,26 @@
+/* Ajustes de legibilidad para la consola administrativa. */
+:root{font-size:14px}
+.nav-item,.page-header p,.topbar-context strong{font-size:13px}
+.nav-label,.brand span,.system-status strong,.profile-card strong{font-size:11px}
+.system-status small,.profile-card small,.topbar-context span{font-size:10px}
+.page-header h1{font-size:clamp(26px,2.5vw,34px)}
+.eyebrow,.primary-button,.secondary-button,.danger-button,.camera-button{font-size:12px}
+.primary-button,.secondary-button,.danger-button{min-height:38px}
+.metric-card span,.metric-card small,.panel-header p,.inventory-card header strong,.compact-list strong,.timeline strong,.timeline b{font-size:11px}
+.metric-card strong{font-size:24px}
+.panel-header h2,.ticket-actions h3,.settings-card h2{font-size:15px}
+.search-box input,.select-wrap select,.form-grid input,.form-grid select,.form-grid textarea,.report-filters input,.report-filters select,.dispatch-fields input,.dispatch-fields select{font-size:12px}
+.form-grid label,.settings-card label,.report-filters label,.dispatch-fields label,.approval-box label{font-size:11px}
+th,.badge,.details-grid dt,.ticket-preview dt,.dispatch-ticket-data dt{font-size:10px}
+td,td strong,.details-grid dd,.ticket-preview dd,.inventory-meta strong,.horizontal-chart>div{font-size:12px}
+td small,.compact-list small,.timeline small,.inventory-card header small,.inventory-meta small,.ticket-preview>small,.ticket-actions p,.settings-card p{font-size:10px}
+.report-kpi small,.report-kpi em{font-size:10px}
+.settings-card dl{margin:0;display:grid;gap:9px}
+.settings-card dl div{display:flex;justify-content:space-between;gap:16px;border-bottom:1px solid var(--border);padding:7px 0}
+.settings-card dt{color:var(--muted)}
+.settings-card dd{margin:0;font-weight:700;text-align:right}
+.report-filters{grid-template-columns:repeat(4,minmax(0,1fr))}
+.fake-qr img{display:block;width:140px;height:140px;object-fit:contain;background:white}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid #74bfa1;outline-offset:2px}
+@media(max-width:1100px){.report-filters{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:560px){.report-filters{grid-template-columns:1fr}}

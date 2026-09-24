@@ -22,7 +22,7 @@ public class DespachosController(TicketsCombustibleDbContext db) : ControllerBas
         if (ticket.Estado is EstadoTicket.ANULADO or EstadoTicket.CONSUMIDO || ticket.FechaVencimiento <= DateTime.UtcNow) return Conflict("El ticket no está disponible para despacho.");
         var operadorId = request.OperadorId ?? (long.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var idUsuario) ? idUsuario : 0);
         if (operadorId == 0) return BadRequest("Debe iniciar sesión o indicar el operador.");
-        if (request.IdentidadConfirmada is false) return BadRequest("Debe confirmar la identidad antes del despacho.");
+        if (request.IdentidadConfirmada is not true) return BadRequest("Debe confirmar la identidad antes del despacho.");
         if (request.GalonesServidos <= 0 || request.GalonesServidos > ticket.CantidadAutorizadaGalones) return BadRequest("Los galones deben ser válidos y no superar lo autorizado.");
         Tanque? tanque;
         if (request.TanqueId.HasValue) tanque = await db.Tanques.SingleOrDefaultAsync(x => x.Id == request.TanqueId && x.Activo);
@@ -36,7 +36,7 @@ public class DespachosController(TicketsCombustibleDbContext db) : ControllerBas
         var estacionId = request.EstacionId ?? tanque.EstacionId;
         if (tanque.EstacionId != estacionId || tanque.TipoCombustibleId != ticket.TipoCombustibleId) return BadRequest("El tanque no corresponde a la estación o tipo de combustible del ticket.");
         if (tanque.ExistenciaActualGalones < request.GalonesServidos) return Conflict("Inventario insuficiente.");
-        var despacho = new Despacho { TicketId = ticket.Id, TanqueId = tanque.Id, EstacionId = estacionId, OperadorId = operadorId, GalonesServidos = request.GalonesServidos, OdometroKm = request.OdometroKm, IdentidadConfirmada = request.IdentidadConfirmada ?? User.Identity?.IsAuthenticated == true, Observaciones = request.Observaciones };
+        var despacho = new Despacho { TicketId = ticket.Id, TanqueId = tanque.Id, EstacionId = estacionId, OperadorId = operadorId, GalonesServidos = request.GalonesServidos, OdometroKm = request.OdometroKm, IdentidadConfirmada = true, Observaciones = request.Observaciones };
         db.Despachos.Add(despacho);
         await db.SaveChangesAsync();
         await transaction.CommitAsync();

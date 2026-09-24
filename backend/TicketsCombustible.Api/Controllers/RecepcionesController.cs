@@ -31,7 +31,7 @@ public class RecepcionesController(TicketsCombustibleDbContext db) : ControllerB
         if (await db.Tanques.CountAsync(x => request.Detalles.Select(d => d.TanqueId).Contains(x.Id) && x.Activo) != request.Detalles.Count) return BadRequest("Uno o más tanques son inválidos.");
 
         await using var transaction = await db.Database.BeginTransactionAsync();
-        var recepcion = new RecepcionCombustible { ProveedorId = request.ProveedorId, NumeroFactura = request.NumeroFactura, FechaRecepcion = request.FechaRecepcion, UsuarioReceptorId = request.UsuarioReceptorId, Observaciones = request.Observaciones };
+        var recepcion = new RecepcionCombustible { ProveedorId = request.ProveedorId, NumeroFactura = request.NumeroFactura, FechaRecepcion = DateTime.SpecifyKind(request.FechaRecepcion, DateTimeKind.Unspecified), UsuarioReceptorId = request.UsuarioReceptorId, Observaciones = request.Observaciones };
         db.Recepciones.Add(recepcion); await db.SaveChangesAsync();
         db.DetallesRecepcion.AddRange(request.Detalles.Select(x => new DetalleRecepcion { RecepcionId = recepcion.Id, TanqueId = x.TanqueId, VolumenRecibidoGalones = x.VolumenRecibidoGalones, CostoUnitario = x.CostoUnitario }));
         await db.SaveChangesAsync(); await transaction.CommitAsync();
