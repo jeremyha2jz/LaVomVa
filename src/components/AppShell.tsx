@@ -22,7 +22,7 @@ const navigation: { label: string; items: { key: PageKey; label: string; icon: t
   ] },
 ]
 
-function Logo() { return <div className="brand"><div className="brand-mark"><Fuel size={21} /></div><div><strong>LaVomVa</strong><span>Gestión de combustible</span></div></div> }
+function Logo() { return <div className="brand"><div className="brand-mark"><img src="/lavomva-logo.png" alt="" /></div><div><strong>LaVomVa</strong><span>Gestión de combustible</span></div></div> }
 
 export function AppShell({ page, onNavigate, children }: { page: PageKey; onNavigate: (page: PageKey) => void; children: ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)

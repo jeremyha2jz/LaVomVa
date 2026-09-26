@@ -6,8 +6,10 @@ export function renderLogin(container, onLoginExitoso) {
     <div class="login-page">
       <h1>Iniciar sesión</h1>
       <form id="login-form">
-        <input type="text" id="usuario" placeholder="Usuario" required />
-        <input type="password" id="contrasena" placeholder="Contraseña" required />
+        <label for="usuario">Usuario</label>
+        <input type="text" id="usuario" placeholder="Tu usuario" autocomplete="username" required />
+        <label for="contrasena">Contraseña</label>
+        <input type="password" id="contrasena" placeholder="Tu contraseña" autocomplete="current-password" required />
         <button type="submit">Entrar</button>
       </form>
       <p id="login-error" class="error"></p>

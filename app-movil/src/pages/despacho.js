@@ -11,6 +11,7 @@ export function renderDespacho(container, ticket) {
         <input type="number" id="galones" step="0.1" min="0.1" max="${ticket.cantidadAutorizada}" required />
         <label>Observaciones</label>
         <textarea id="observaciones" placeholder="Opcional"></textarea>
+        <label><input type="checkbox" id="identidad-confirmada" required /> Confirmo que verifiqué la identidad del conductor.</label>
         <button type="submit">Confirmar despacho</button>
       </form>
       <p id="despacho-estado"></p>
@@ -24,6 +25,7 @@ export function renderDespacho(container, ticket) {
     e.preventDefault();
     const galones = parseFloat(container.querySelector('#galones').value);
     const observaciones = container.querySelector('#observaciones').value;
+    const identidadConfirmada = container.querySelector('#identidad-confirmada').checked;
 
     // Validación extra en JS: el "min" del HTML se puede saltar editando el DOM,
     // así que revisamos también aquí antes de mandar el dato.
@@ -35,12 +37,16 @@ export function renderDespacho(container, ticket) {
       estadoMsg.textContent = "No puedes servir más de lo autorizado";
       return;
     }
+    if (!identidadConfirmada) {
+      estadoMsg.textContent = "Debes confirmar la identidad del conductor";
+      return;
+    }
 
     try {
-      const resultado = await registrarDespacho(ticket.id, galones, observaciones);
+      const resultado = await registrarDespacho(ticket.id, galones, observaciones, identidadConfirmada);
       estadoMsg.textContent = resultado.mensaje;
     } catch (err) {
-      estadoMsg.textContent = "Error al registrar el despacho";
+      estadoMsg.textContent = err.message || "Error al registrar el despacho";
     }
   });
 }

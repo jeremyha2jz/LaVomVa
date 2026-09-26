@@ -24,6 +24,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { ...(init?.body ? { 'Content-Type': 'application/json' } : {}), ...(session ? { Authorization: `Bearer ${session.token}` } : {}), ...init?.headers },
   })
   if (!response.ok) {
+    if ([502, 503, 504].includes(response.status)) {
+      throw new Error('El servidor de la aplicación no está disponible. Inténtalo de nuevo cuando la API esté en funcionamiento.')
+    }
     const body = await response.text()
     let message = body || `Error ${response.status}`
     try { const parsed = JSON.parse(body); message = parsed.mensaje || parsed.title || parsed.detail || body } catch { /* Plain text error. */ }

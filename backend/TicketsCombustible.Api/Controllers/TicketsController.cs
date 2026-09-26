@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Globalization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Caching.Memory;
@@ -52,8 +53,8 @@ public class TicketsController(TicketsCombustibleDbContext db, IConfiguration co
         var id = Guid.NewGuid(); var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
         var secret = configuration["Qr:SigningSecret"];
         if (string.IsNullOrWhiteSpace(secret) || secret.Length < 32 || secret.StartsWith("REEMPLAZA_")) return Problem("Configura Qr:SigningSecret con al menos 32 caracteres privados antes de emitir tickets.");
-        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{id}|{solicitud.Id}|{token}|{secret}"))).ToLowerInvariant();
-        var ticket = new Ticket { Id = id, SolicitudId = solicitud.Id, EmpleadoId = solicitud.EmpleadoId, VehiculoId = solicitud.VehiculoId, DepartamentoId = solicitud.DepartamentoId, TipoCombustibleId = solicitud.TipoCombustibleId, CantidadAutorizadaGalones = solicitud.CantidadAutorizadaGalones.Value, FechaVencimiento = solicitud.FechaVencimiento.Value, Estado = EstadoTicket.CREADO, QrToken = token, QrHash = hash };
+        var ticket = new Ticket { Id = id, SolicitudId = solicitud.Id, EmpleadoId = solicitud.EmpleadoId, VehiculoId = solicitud.VehiculoId, DepartamentoId = solicitud.DepartamentoId, TipoCombustibleId = solicitud.TipoCombustibleId, CantidadAutorizadaGalones = solicitud.CantidadAutorizadaGalones.Value, FechaCreacion = FechaPg(DateTime.UtcNow), FechaVencimiento = FechaPg(solicitud.FechaVencimiento.Value), Estado = EstadoTicket.CREADO, QrToken = token };
+        ticket.QrHash = FirmarTicket(ticket, secret);
         db.Tickets.Add(ticket); await db.SaveChangesAsync(); await db.Entry(ticket).ReloadAsync();
         return CreatedAtAction(nameof(Obtener), new { id = ticket.Id }, ticket);
     }
@@ -65,11 +66,9 @@ public class TicketsController(TicketsCombustibleDbContext db, IConfiguration co
         if (ticket is null) return Ok(new { valido = false, estado = "Anulado", ticket = (object?)null, mensajeError = "El ticket no existe o el QR es inválido" });
         var secret = configuration["Qr:SigningSecret"];
         if (string.IsNullOrWhiteSpace(secret) || secret.Length < 32 || secret.StartsWith("REEMPLAZA_")) return Problem("Falta configurar el secreto QR.");
-        var expectedHash = SHA256.HashData(Encoding.UTF8.GetBytes($"{ticket.Id}|{ticket.SolicitudId}|{ticket.QrToken}|{secret}"));
-        byte[] storedHash;
-        try { storedHash = Convert.FromHexString(ticket.QrHash); }
-        catch (FormatException) { storedHash = []; }
-        if (!CryptographicOperations.FixedTimeEquals(expectedHash, storedHash)) return Ok(new { valido = false, estado = "Anulado", ticket = (object?)null, mensajeError = "La firma del QR es inválida" });
+        var expectedHash = Encoding.ASCII.GetBytes(FirmarTicket(ticket, secret));
+        var storedHash = Encoding.ASCII.GetBytes(ticket.QrHash);
+        if (storedHash.Length != expectedHash.Length || !CryptographicOperations.FixedTimeEquals(expectedHash, storedHash)) return Ok(new { valido = false, estado = "Anulado", ticket = (object?)null, mensajeError = "La firma del QR es inválida" });
         var estado = ticket.FechaVencimiento <= DateTime.UtcNow && ticket.Estado is not EstadoTicket.CONSUMIDO and not EstadoTicket.ANULADO ? EstadoTicket.VENCIDO : ticket.Estado;
         if (estado is EstadoTicket.CONSUMIDO or EstadoTicket.ANULADO or EstadoTicket.VENCIDO) return Ok(new { valido = false, estado = NombreEstado(estado), ticket = (object?)null, mensajeError = MensajeEstado(estado) });
         var actorId = User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -80,6 +79,29 @@ public class TicketsController(TicketsCombustibleDbContext db, IConfiguration co
 
     private static string NombreEstado(EstadoTicket estado) => estado switch { EstadoTicket.CREADO or EstadoTicket.PENDIENTE or EstadoTicket.ENVIADO => "Creado", EstadoTicket.VENCIDO or EstadoTicket.PROXIMO_A_VENCER => "Vencido", EstadoTicket.CONSUMIDO => "Consumido", EstadoTicket.ANULADO => "Anulado", _ => estado.ToString() };
     private static string MensajeEstado(EstadoTicket estado) => estado switch { EstadoTicket.CONSUMIDO => "El ticket ya fue consumido", EstadoTicket.ANULADO => "El ticket fue anulado", EstadoTicket.VENCIDO => "El ticket ya venció", _ => "El ticket no está disponible" };
+
+    private static string FirmarTicket(Ticket ticket, string secret)
+    {
+        // v2 ties the bearer QR token to every immutable ticket field used for dispatch.
+        var payload = string.Join('|', "v2", ticket.Id.ToString("D"),
+            ticket.SolicitudId.ToString(CultureInfo.InvariantCulture),
+            ticket.EmpleadoId.ToString(CultureInfo.InvariantCulture),
+            ticket.VehiculoId.ToString(CultureInfo.InvariantCulture),
+            ticket.DepartamentoId.ToString(CultureInfo.InvariantCulture),
+            ticket.TipoCombustibleId.ToString(CultureInfo.InvariantCulture),
+            ticket.CantidadAutorizadaGalones.ToString("G29", CultureInfo.InvariantCulture),
+            (ticket.FechaCreacion.Ticks / 10).ToString(CultureInfo.InvariantCulture),
+            (ticket.FechaVencimiento.Ticks / 10).ToString(CultureInfo.InvariantCulture),
+            ticket.QrToken);
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
+        return Convert.ToHexString(hmac.ComputeHash(Encoding.UTF8.GetBytes(payload))).ToLowerInvariant();
+    }
+
+    private static DateTime FechaPg(DateTime fecha)
+    {
+        var utc = fecha.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(fecha, DateTimeKind.Utc) : fecha.ToUniversalTime();
+        return DateTime.SpecifyKind(new DateTime(utc.Ticks - utc.Ticks % 10, DateTimeKind.Utc), DateTimeKind.Unspecified);
+    }
 }
 
 public record ValidarTicketRequest(string QrData);

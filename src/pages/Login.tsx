@@ -1,5 +1,5 @@
 import { useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
-import { ArrowRight, Check, Eye, EyeOff, Fuel, LockKeyhole, Mail, QrCode, ShieldCheck, UserRound } from 'lucide-react'
+import { ArrowRight, Check, Eye, EyeOff, LockKeyhole, Mail, UserRound } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 
 type Mode = 'login' | 'register'
@@ -89,24 +89,19 @@ export function Login() {
 
   return <main className="auth-layout">
     <section className="auth-story" aria-label="LaVomVa, gestión de combustible">
-      <div className="auth-story-top"><span className="auth-brand-mark"><Fuel size={25} strokeWidth={2.3} /></span><span><strong>LaVomVa</strong><small>GESTIÓN DE COMBUSTIBLE</small></span></div>
+      <div className="auth-story-top">LaVomVa <span>·</span> Plataforma de gestión</div>
       <div className="auth-story-main">
-        <span className="auth-story-eyebrow"><span /> PLATAFORMA DE CONTROL</span>
-        <h1>Cada galón,<br /><em>bajo control.</em></h1>
-        <p>Solicitudes, tickets digitales e inventario en un solo lugar. Información clara en cada paso del proceso.</p>
-        <div className="auth-ticket-art" aria-hidden="true">
-          <div className="auth-ticket-head"><span className="auth-ticket-symbol"><Fuel size={21} /></span><span>LaVomVa<small>TICKET DIGITAL</small></span><span className="auth-ticket-status"><i /> CONTROLADO</span></div>
-          <div className="auth-ticket-main"><div className="auth-ticket-lines"><i /><i /><i /></div><div className="auth-ticket-qr"><QrCode size={84} strokeWidth={1.25} /></div></div>
-          <div className="auth-ticket-foot"><span>Solicitud</span><span className="auth-ticket-arrow">→</span><span>Autorización</span><span className="auth-ticket-arrow">→</span><span>Despacho</span></div>
-        </div>
+        <div className="auth-logo-frame"><img src="/lavomva-logo.png" alt="Logo de LaVomVa" /></div>
+        <div className="auth-story-line" />
+        <p>Solicitudes, tickets e inventario de combustible en un solo lugar.</p>
       </div>
-      <div className="auth-story-bottom"><ShieldCheck size={17} /><span>Acceso protegido para cada perfil</span></div>
+      <div className="auth-story-bottom">Gestión de combustible</div>
     </section>
 
     <section className="auth-panel" aria-label="Acceso a la plataforma">
-      <div className="auth-mobile-brand"><span className="auth-brand-mark"><Fuel size={20} /></span><strong>LaVomVa</strong></div>
+      <div className="auth-mobile-brand"><span className="brand-mark"><img src="/lavomva-logo.png" alt="" /></span><strong>LaVomVa</strong></div>
       <div className="auth-card">
-        <div className="auth-header"><span className="auth-header-icon">{mode === 'login' ? <LockKeyhole size={22} /> : <UserRound size={22} />}</span><span className="auth-kicker">{mode === 'login' ? 'ACCESO A LA PLATAFORMA' : 'NUEVA CUENTA'}</span><h2>{mode === 'login' ? 'Bienvenido de nuevo' : 'Crea tu cuenta'}</h2><p>{mode === 'login' ? 'Ingresa tus datos para continuar con tu trabajo.' : 'Completa tus datos. Un administrador revisará y activará tu cuenta.'}</p></div>
+        <div className="auth-header"><span className="auth-kicker">{mode === 'login' ? 'ACCESO A LA PLATAFORMA' : 'NUEVA CUENTA'}</span><h2>{mode === 'login' ? 'Iniciar sesión' : 'Crear cuenta'}</h2><p>{mode === 'login' ? 'Ingresa tus datos para continuar.' : 'Completa tus datos. Un administrador activará tu cuenta.'}</p></div>
         <div className="auth-tabs" role="tablist" aria-label="Tipo de acceso" onKeyDown={(event) => {
           if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
           event.preventDefault()

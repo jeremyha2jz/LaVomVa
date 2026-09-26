@@ -4,7 +4,7 @@ Sistema para controlar el despacho e inventario de combustible mediante tickets 
 
 Se basa en el documento *SRS Plataforma Web y Aplicación Móvil para Gestión de Tickets Digitales e Inventario de Combustible* (v1.0, agosto 2026), proyecto académico de INTEC.
 
-> Estado actual: desde la web se crean, aprueban y rechazan solicitudes, y al aprobar se emite el ticket con su QR. Además se consultan tickets, catálogos, inventario y movimientos, se registran recepciones de combustible y se exportan reportes a CSV. La app móvil valida el QR contra la API. **La API exige inicio de sesión y aplica roles en las operaciones de escritura**, y **el despacho desde la app móvil está roto** tras los últimos cambios de la API (ver "Limitaciones y notas conocidas"). No debe exponerse en una red pública ni usarse con datos reales.
+> Estado actual: desde la web se crean, aprueban y rechazan solicitudes, y al aprobar se emite el ticket con su QR. Además se consultan tickets, catálogos, inventario y movimientos, se registran recepciones de combustible y se exportan reportes a CSV. La app móvil valida QR y puede registrar despachos con confirmación explícita de identidad. La API exige inicio de sesión y aplica roles en operaciones protegidas. Esta versión sigue siendo académica; no la expongas en una red pública ni la uses con datos reales.
 
 ## Tecnologías
 
@@ -17,6 +17,18 @@ Se basa en el documento *SRS Plataforma Web y Aplicación Móvil para Gestión d
 - Web: React, TypeScript, Vite, lucide-react y pnpm
 - App móvil: JavaScript sin framework, Vite, html5-qrcode y PWA (`manifest.json` + service worker)
 - ngrok (opcional) para usar la cámara del celular por HTTPS
+
+## Pruebas automatizadas
+
+Con Node.js, pnpm, .NET SDK 8, Python 3 y los binarios de PostgreSQL (`initdb`, `pg_ctl`, `createdb`, `psql`) instalados, ejecuta desde la raíz:
+
+```bash
+pnpm install --frozen-lockfile
+npm --prefix app-movil ci
+pnpm test:all
+```
+
+El comando crea una instancia PostgreSQL temporal, carga `DATABASE_FINALLL`, ejecuta Vitest, las pruebas de contrato móvil, las pruebas de integración de API con cobertura y las compilaciones web/PWA/API. Al terminar, detiene y elimina esa instancia. Nunca apunta a una base configurada por el usuario. Para las suites individuales: `pnpm test`, `pnpm --dir app-movil test` y `dotnet test tests/TicketsCombustible.Api.Tests/TicketsCombustible.Api.Tests.csproj` (esta última requiere `QA_TEST_CONNECTION` hacia una base aislada con el esquema cargado).
 
 ## Funcionalidades disponibles
 
@@ -38,7 +50,7 @@ Se basa en el documento *SRS Plataforma Web y Aplicación Móvil para Gestión d
 - Creación y listado de usuarios, con un rol por usuario; seis roles precargados: Administrador, Supervisor, Despachador, Solicitante, Auditor y Consulta.
 - Departamentos, empleados, vehículos, estaciones y tanques: crear, editar y desactivar (baja lógica) en `api/gestion`, y consulta de activos en `api/catalogos`.
 - Solicitudes: crear (valida que empleado, vehículo, departamento y combustible existan y estén activos), aprobar y rechazar. Las fechas se aceptan en UTC (`...Z`), con desfase (`-04:00`) o sin zona.
-- Tickets: emisión desde una solicitud aprobada con UUID, número `COM-AAAA-NNNNNN` (prefijo configurable, reinicio anual y sin duplicados gracias a un bloqueo de fila en la base), token aleatorio de 256 bits y hash SHA-256 con el secreto del servidor.
+- Tickets: emisión desde una solicitud aprobada con UUID, número `COM-AAAA-NNNNNN` (prefijo configurable, reinicio anual y sin duplicados gracias a un bloqueo de fila en la base), token aleatorio de 256 bits y HMAC-SHA-256 del token y los datos protegidos del ticket.
 - Validación del QR (`POST /api/tickets/validar`): recalcula y compara el hash, e indica si el ticket es válido, vencido, consumido o anulado.
 - Despacho: exige identidad confirmada, galones mayores que cero y no más de lo autorizado, tanque compatible e inventario suficiente. La base registra la salida y marca el ticket como consumido; un ticket no se puede despachar dos veces.
 - Recepciones por proveedor y factura, con uno o varios tanques; ajustes positivos, negativos y mermas.
@@ -62,7 +74,7 @@ Los pasos de la web requieren la API y una cuenta autenticada. Lo que la web aú
 
 **RF-10 — Estado del ticket.** "Tickets digitales" en la web o "Ver tickets" en la app móvil.
 
-**RF-12 y RF-13 — Despacho.** El despacho se hace desde la app móvil escaneando el QR; la web no permite despachar por número. **Hoy falla**: la API exige `identidadConfirmada` y la app no la envía (ver "Limitaciones").
+**RF-12 y RF-13 — Despacho.** El despacho se hace desde la app móvil escaneando el QR; la web no permite despachar por número. Antes de enviar el despacho, el operador debe marcar que verificó la identidad del conductor.
 
 **RF-14 y RF-16 — Recepción.** Crea proveedor, estación y tanque desde "Administración"; luego ve a "Inventario" → "Registrar recepción" e indica proveedor, factura, tanque, volumen y fecha.
 
@@ -80,18 +92,17 @@ El detalle requisito por requisito está en el documento de brechas frente al SR
 
 - **Autenticación y roles.** La API exige JWT en las rutas privadas y restringe las escrituras por rol. Todavía faltan políticas de alcance por usuario y auditoría completa.
 - **Prueba de validación QR en memoria.** `POST /api/despachos` exige que la misma sesión haya validado recientemente el QR. Una instalación con varias instancias necesita un almacén compartido para esta prueba.
-- **La app móvil no puede despachar.** La API ahora rechaza el despacho con 400 si no llega `identidadConfirmada: true`, y la app no lo envía. Como la app espera JSON y el error llega en texto plano, el despachador solo ve "Error al registrar el despacho".
-- **La lista de tickets de la app móvil está rota.** `GET /api/tickets` cambió de formato para la web: la app muestra el UUID en lugar del número, el estado en mayúsculas, "undefined gal" y la fecha completa.
+- **Escaneo QR desde cámara real.** La integración con cámara y permisos del navegador no tiene prueba E2E automatizada; se valida el contrato móvil mediante pruebas unitarias y el flujo servidor mediante integración.
 - **La web y la app móvil usan el mismo puerto (5173).** Para usarlas a la vez, arranca la app móvil con `npm run dev -- --port 5174`.
 - **Zonas horarias mezcladas.** Algunas fechas se guardan en UTC (vencimiento, aprobación, movimientos) y otras con la hora local del servidor de PostgreSQL (creación del ticket, fecha de solicitud). La web interpreta todas como hora local, así que las fechas en UTC se ven desplazadas.
-- **Seguridad del QR incompleta.** El hash no incluye empleado, vehículo, cantidad ni fechas, y no hay firma digital (`qr_firma` queda vacía).
+- **Migración de firma QR.** Los QR existentes firmados con el formato anterior no validan con el HMAC nuevo; antes de desplegar sobre una base con tickets activos, hay que definir una reemisión controlada.
 - **Estados sin uso.** No hay envío ni anulación de tickets, así que `ENVIADO`, `PROXIMO_A_VENCER` y `ANULADO` nunca se asignan.
 - **Tablas sin uso.** Auditoría, notificaciones, cierres diarios y envíos de ticket existen en la base, pero nada escribe en ellas.
 - **Sin cierre diario, auditoría, correo, SMS, PDF, exportación a Excel ni reportes del servidor.** Los reportes de la web se calculan en el navegador con los datos ya cargados.
 - **Solicitudes automáticas y recurrentes:** se guarda el tipo, pero no hay programación que las genere.
 - **Sin transferencias entre tanques:** la base las permite, pero no hay endpoint.
 - **Catálogos adicionales:** estaciones, tanques y proveedores se crean desde "Administración". La edición y desactivación de esos catálogos aún requiere la API.
-- **Sin pruebas automatizadas.** La web declara Vitest, pero no tiene pruebas.
+- **Cobertura automatizada parcial.** Existen pruebas Vitest para la web, pruebas de contrato móvil y pruebas de integración API/PostgreSQL; falta E2E de navegador, pruebas amplias de validación y auditoría funcional.
 - **Versiones sin fijar.** `package.json` de la web usa `latest` en todas sus dependencias; `pnpm-lock.yaml` fija las versiones, así que instala con `pnpm install --frozen-lockfile`.
 - **Caché de la app móvil.** El service worker sirve `index.html` desde caché; tras un cambio puede hacer falta "Update on reload" o "Unregister" en DevTools → Application → Service Workers.
 

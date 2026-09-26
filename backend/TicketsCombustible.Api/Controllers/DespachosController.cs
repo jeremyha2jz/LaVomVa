@@ -6,6 +6,7 @@ using System.Security.Claims;
 using TicketsCombustible.Api.Contracts;
 using TicketsCombustible.Api.Data;
 using TicketsCombustible.Api.Models;
+using Npgsql;
 
 namespace TicketsCombustible.Api.Controllers;
 
@@ -43,8 +44,16 @@ public class DespachosController(TicketsCombustibleDbContext db, IMemoryCache ca
         if (tanque.ExistenciaActualGalones < request.GalonesServidos) return Conflict("Inventario insuficiente.");
         var despacho = new Despacho { TicketId = ticket.Id, TanqueId = tanque.Id, EstacionId = estacionId, OperadorId = operadorId, GalonesServidos = request.GalonesServidos, OdometroKm = request.OdometroKm, IdentidadConfirmada = true, Observaciones = request.Observaciones };
         db.Despachos.Add(despacho);
-        await db.SaveChangesAsync();
-        await transaction.CommitAsync();
+        try
+        {
+            await db.SaveChangesAsync();
+            await transaction.CommitAsync();
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException pg &&
+            pg.SqlState == PostgresErrorCodes.UniqueViolation && pg.ConstraintName == "despachos_id_ticket_key")
+        {
+            return Conflict("El ticket ya fue despachado por otro operador.");
+        }
         cache.Remove(validationKey);
         return Ok(new { ok = true, mensaje = "Despacho registrado", despacho });
     }

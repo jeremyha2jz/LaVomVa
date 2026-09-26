@@ -23,8 +23,7 @@ export async function login(usuario, contrasena) {
     },
     body: JSON.stringify({ usuario, contrasena })
   });
-  if (!res.ok) throw new Error("Usuario o contraseña incorrectos");
-  return res.json();
+  return leerRespuesta(res);
 }
 
 export async function validarTicket(qrData) {
@@ -43,10 +42,10 @@ export async function validarTicket(qrData) {
     },
     body: JSON.stringify({ qrData })
   });
-  return res.json();
+  return leerRespuesta(res);
 }
 
-export async function registrarDespacho(ticketId, galonesServidos, observaciones) {
+export async function registrarDespacho(ticketId, galonesServidos, observaciones, identidadConfirmada) {
   if (USE_MOCK) {
     await simularRetraso();
     console.log("Despacho simulado:", { ticketId, galonesServidos, observaciones });
@@ -60,9 +59,9 @@ export async function registrarDespacho(ticketId, galonesServidos, observaciones
       "Authorization": `Bearer ${localStorage.getItem("token")}`,
       "ngrok-skip-browser-warning": "true"
     },
-    body: JSON.stringify({ ticketId, galonesServidos, observaciones })
+    body: JSON.stringify({ ticketId, galonesServidos, observaciones, identidadConfirmada })
   });
-  return res.json();
+  return leerRespuesta(res);
 }
 
 export async function consultarTickets() {
@@ -77,7 +76,25 @@ export async function consultarTickets() {
       "ngrok-skip-browser-warning": "true"
     }
   });
-  return res.json();
+  const tickets = await leerRespuesta(res);
+  return tickets.map(ticket => ({
+    ...ticket,
+    id: ticket.numeroSecuencial ?? ticket.id,
+    uuid: ticket.id,
+    cantidadAutorizada: ticket.cantidadAutorizadaGalones ?? ticket.cantidadAutorizada,
+  }));
+}
+
+async function leerRespuesta(res) {
+  const raw = await res.text();
+  let body;
+  try { body = raw ? JSON.parse(raw) : null; }
+  catch { body = raw; }
+  if (!res.ok) {
+    const message = typeof body === "string" ? body : body?.mensaje ?? body?.title ?? body?.error;
+    throw new Error(message || `Error HTTP ${res.status}`);
+  }
+  return body;
 }
 
 function simularRetraso() {
