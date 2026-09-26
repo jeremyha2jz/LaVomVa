@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 using TicketsCombustible.Api.Contracts;
@@ -8,8 +10,9 @@ using TicketsCombustible.Api.Models;
 namespace TicketsCombustible.Api.Controllers;
 
 [ApiController]
+[Authorize(Roles = "ADMINISTRADOR,DESPACHADOR")]
 [Route("api/despachos")]
-public class DespachosController(TicketsCombustibleDbContext db) : ControllerBase
+public class DespachosController(TicketsCombustibleDbContext db, IMemoryCache cache) : ControllerBase
 {
     [HttpPost]
     public async Task<IActionResult> Registrar(RegistrarDespachoRequest request)
@@ -20,8 +23,10 @@ public class DespachosController(TicketsCombustibleDbContext db) : ControllerBas
             : await db.Tickets.SingleOrDefaultAsync(x => x.NumeroSecuencial == request.TicketId);
         if (ticket is null) return NotFound("Ticket no encontrado.");
         if (ticket.Estado is EstadoTicket.ANULADO or EstadoTicket.CONSUMIDO || ticket.FechaVencimiento <= DateTime.UtcNow) return Conflict("El ticket no está disponible para despacho.");
-        var operadorId = request.OperadorId ?? (long.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var idUsuario) ? idUsuario : 0);
+        var operadorId = long.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var idUsuario) ? idUsuario : 0;
         if (operadorId == 0) return BadRequest("Debe iniciar sesión o indicar el operador.");
+        var validationKey = $"qr-validado:{operadorId}:{ticket.Id}";
+        if (!cache.TryGetValue(validationKey, out _)) return BadRequest("Escanea y valida el QR antes del despacho.");
         if (request.IdentidadConfirmada is not true) return BadRequest("Debe confirmar la identidad antes del despacho.");
         if (request.GalonesServidos <= 0 || request.GalonesServidos > ticket.CantidadAutorizadaGalones) return BadRequest("Los galones deben ser válidos y no superar lo autorizado.");
         Tanque? tanque;
@@ -40,6 +45,7 @@ public class DespachosController(TicketsCombustibleDbContext db) : ControllerBas
         db.Despachos.Add(despacho);
         await db.SaveChangesAsync();
         await transaction.CommitAsync();
+        cache.Remove(validationKey);
         return Ok(new { ok = true, mensaje = "Despacho registrado", despacho });
     }
 }

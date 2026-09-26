@@ -27,9 +27,9 @@ function Logo() { return <div className="brand"><div className="brand-mark"><Fue
 export function AppShell({ page, onNavigate, children }: { page: PageKey; onNavigate: (page: PageKey) => void; children: ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
-  const { toasts, removeToast, tanks, tickets, requests, live, session, logout } = useApp()
-  const profileName = session?.name || 'Elena Vargas'
-  const profileRole = session?.role || 'Modo demostración'
+  const { toasts, removeToast, tanks, tickets, requests, session, logout } = useApp()
+  const profileName = session?.name || ''
+  const profileRole = session?.role || ''
   const initials = profileName.split(' ').map((part) => part[0]).slice(0, 2).join('').toUpperCase()
   const critical = tanks.filter((tank) => tank.stock <= tank.criticalLevel).length
   const expiring = tickets.filter((ticket) => ticket.status === 'PROXIMO_A_VENCER' || ticket.status === 'VENCIDO').length
@@ -42,8 +42,8 @@ export function AppShell({ page, onNavigate, children }: { page: PageKey; onNavi
     <aside className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
       <div className="sidebar-top"><Logo /><button className="icon-button sidebar-close" onClick={() => setSidebarOpen(false)}><X size={20} /></button></div>
       <nav>{navigation.map((section) => <div className="nav-section" key={section.label}><span className="nav-label">{section.label}</span>{section.items.map((item) => <button key={item.key} className={`nav-item ${page === item.key ? 'active' : ''}`} onClick={() => navigate(item.key)}><item.icon size={19} /><span>{item.label}</span>{item.key === 'solicitudes' && pending > 0 && <b>{pending}</b>}</button>)}</div>)}</nav>
-      <div className="system-status"><div><ShieldCheck size={18} /><span><strong>{live ? 'Conectado a la API' : 'Sistema disponible'}</strong><small>{live ? 'Datos de PostgreSQL' : 'Modo demostración'}</small></span></div><i /></div>
-      {live ? <button className="profile-card" onClick={logout} title="Cerrar sesión"><div className="avatar">{initials}</div><span><strong>{profileName}</strong><small>{profileRole} · salir</small></span><ChevronDown size={17} /></button> : <div className="profile-card"><div className="avatar">EV</div><span><strong>Elena Vargas</strong><small>Demostración</small></span></div>}
+      <div className="system-status"><div><ShieldCheck size={18} /><span><strong>Conectado a la API</strong><small>Datos de PostgreSQL</small></span></div><i /></div>
+      <button className="profile-card" onClick={logout} title="Cerrar sesión"><div className="avatar">{initials}</div><span><strong>{profileName}</strong><small>{profileRole} · salir</small></span><ChevronDown size={17} /></button>
     </aside>
     {sidebarOpen && <button className="sidebar-overlay" onClick={() => setSidebarOpen(false)} aria-label="Cerrar menú" />}
     <section className="main-column">

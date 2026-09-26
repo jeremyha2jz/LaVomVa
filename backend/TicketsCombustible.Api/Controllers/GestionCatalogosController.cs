@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using TicketsCombustible.Api.Data;
 using TicketsCombustible.Api.Models;
@@ -6,6 +7,7 @@ using TicketsCombustible.Api.Models;
 namespace TicketsCombustible.Api.Controllers;
 
 [ApiController]
+[Authorize(Roles = "ADMINISTRADOR,SUPERVISOR")]
 [Route("api/gestion")]
 public class GestionCatalogosController(TicketsCombustibleDbContext db) : ControllerBase
 {
@@ -31,7 +33,7 @@ public class GestionCatalogosController(TicketsCombustibleDbContext db) : Contro
     public async Task<IActionResult> CrearEstacion(Estacion item) { db.Estaciones.Add(item); await db.SaveChangesAsync(); return Created($"api/gestion/estaciones/{item.Id}", item); }
 
     [HttpPost("tanques")]
-    public async Task<IActionResult> CrearTanque(Tanque item) { if (!await db.Estaciones.AnyAsync(x => x.Id == item.EstacionId && x.Activo)) return BadRequest("La estación no existe o está inactiva."); if (!await db.TiposCombustible.AnyAsync(x => x.Id == item.TipoCombustibleId && x.Activo)) return BadRequest("Tipo de combustible inválido."); if (item.CapacidadGalones <= 0) return BadRequest("La capacidad debe ser mayor que cero."); db.Tanques.Add(item); await db.SaveChangesAsync(); return Created($"api/gestion/tanques/{item.Id}", item); }
+    public async Task<IActionResult> CrearTanque(Tanque item) { if (!await db.Estaciones.AnyAsync(x => x.Id == item.EstacionId && x.Activo)) return BadRequest("La estación no existe o está inactiva."); if (!await db.TiposCombustible.AnyAsync(x => x.Id == item.TipoCombustibleId && x.Activo)) return BadRequest("Tipo de combustible inválido."); if (item.CapacidadGalones <= 0 || item.NivelCriticoGalones < 0 || item.NivelCriticoGalones > item.CapacidadGalones || item.ExistenciaActualGalones != 0) return BadRequest("El tanque nuevo debe iniciar vacío, con capacidad positiva y nivel crítico válido."); db.Tanques.Add(item); await db.SaveChangesAsync(); return Created($"api/gestion/tanques/{item.Id}", item); }
 
     [HttpDelete("{tipo}/{id:long}")]
     public async Task<IActionResult> Desactivar(string tipo, long id)

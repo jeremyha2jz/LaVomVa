@@ -1,16 +1,15 @@
 # API LaVomVa
 
-Backend académico en .NET 8, Entity Framework Core y PostgreSQL.
+Backend en .NET 8, Entity Framework Core y PostgreSQL.
 
 ## Configuración local
 
-1. Crea la base PostgreSQL `tickets_combustible` y ejecuta `DATABASE_FINALLL` desde la raíz del proyecto.
-2. Copia `appsettings.Development.example.json` a `appsettings.Development.json`. Reemplaza contraseña de base de datos, clave JWT y secreto QR por valores privados y aleatorios; no subas este archivo a GitHub.
-3. Ejecuta `dotnet restore` y `dotnet run --launch-profile http` desde esta carpeta.
-4. Abre `http://localhost:5007/swagger`.
+1. Crea la base `tickets_combustible` y ejecuta `DATABASE_FINALLL` desde la raíz del proyecto.
+2. Copia `appsettings.Development.example.json` a `appsettings.Development.json`. Reemplaza contraseña de PostgreSQL, clave JWT y secreto QR por valores privados; no subas este archivo a Git.
+3. Configura `Bootstrap__Secret` con un valor aleatorio de al menos 32 caracteres para crear la primera cuenta administradora.
+4. Ejecuta `dotnet restore` y `dotnet run --launch-profile http` desde esta carpeta. Swagger está disponible en `http://localhost:5007/swagger` durante desarrollo.
+5. Haz `POST /api/login/inicializar-admin` una sola vez con `{ "secreto": "EL_SECRETO", "usuario": "admin", "correo": "admin@ejemplo.com", "nombreCompleto": "Administrador", "contrasena": "UNA_CONTRASEÑA_LARGA" }`. Luego elimina `Bootstrap__Secret` de la configuración y reinicia la API.
 
-La configuración también puede proporcionarse mediante variables de entorno como `ConnectionStrings__TicketsCombustible`, `Jwt__Key` y `Qr__SigningSecret`.
+Las variables `ConnectionStrings__TicketsCombustible`, `Jwt__Key` y `Qr__SigningSecret` también pueden usarse en lugar de archivo local. El registro público `POST /api/login/registro` crea cuentas de solo consulta inactivas hasta que un administrador las active. Los administradores pueden crear usuarios con otros roles desde la web.
 
-## Estado
-
-La API compila y contiene rutas de autenticación, catálogos, solicitudes, tickets, recepciones, inventario y despachos. El esquema SQL genera el correlativo y actualiza inventario mediante triggers. No hay cuenta inicial ni migración automática: se requiere preparar PostgreSQL y crear un usuario con rol para probar el modo conectado. La autorización por endpoint y otras garantías del SRS siguen pendientes; no expongas esta API públicamente ni la uses con datos sensibles hasta completarlas.
+La API exige JWT en las rutas privadas y restringe las escrituras por rol. El despacho requiere una validación reciente del QR en la misma sesión; la prueba se guarda en memoria y debe migrarse a un almacén compartido antes de ejecutar varias instancias. La app móvil aún no envía `identidadConfirmada`, así que su despacho continúa pendiente de integración. No uses el sistema con datos sensibles ni lo expongas públicamente hasta resolver las brechas de seguridad restantes.

@@ -15,7 +15,7 @@ import { useApp } from './context/AppContext'
 const pages: PageKey[] = ['dashboard', 'solicitudes', 'tickets', 'despacho', 'inventario', 'operaciones', 'catalogos', 'reportes', 'administracion']
 
 export default function App() {
-  const { live, session, loading, error, refresh, logout } = useApp()
+  const { session, loading, error, refresh, logout } = useApp()
   const initial = window.location.hash.replace('#', '') as PageKey
   const [page, setPage] = useState<PageKey>(pages.includes(initial) ? initial : 'dashboard')
   useEffect(() => {
@@ -38,8 +38,8 @@ export default function App() {
     reportes: <Reports />,
     administracion: <Admin />,
   }[page]
-  if (live && !session) return <Login />
-  if (live && loading) return <div className="load-screen"><span className="login-mark">L</span><h1>Cargando LaVomVa</h1><p>Conectando con la API…</p></div>
-  if (live && error) return <div className="load-screen"><h1>No se pudo conectar</h1><p>{error}</p><div className="load-actions"><button className="primary-button" onClick={() => void refresh().catch(() => {})}>Reintentar</button><button className="secondary-button" onClick={logout}>Cerrar sesión</button></div></div>
+  if (!session) return <Login />
+  if (loading) return <div className="load-screen"><span className="login-mark">L</span><h1>Cargando LaVomVa</h1><p>Conectando con la API…</p></div>
+  if (error) return <div className="load-screen"><h1>No se pudo conectar</h1><p>{error}</p><div className="load-actions"><button className="primary-button" onClick={() => void refresh().catch(() => {})}>Reintentar</button><button className="secondary-button" onClick={logout}>Cerrar sesión</button></div></div>
   return <AppShell page={page} onNavigate={navigate}>{content}</AppShell>
 }
