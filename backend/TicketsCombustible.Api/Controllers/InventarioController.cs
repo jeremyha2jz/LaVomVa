@@ -11,7 +11,7 @@ namespace TicketsCombustible.Api.Controllers;
 
 [ApiController]
 [Route("api/inventario")]
-public class InventarioController(TicketsCombustibleDbContext db, IAuditoriaService auditoria, NotificacionService notifications) : ControllerBase
+public class InventarioController(TicketsCombustibleDbContext db, IAuditoriaService auditoria, NotificacionService notifications, IInventoryRealtimePublisher realtime) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> Consultar() => Ok(await db.Tanques.Where(x => x.Activo).OrderBy(x => x.Codigo).Select(x => new { x.Id, x.Codigo, x.EstacionId, x.TipoCombustibleId, x.CapacidadGalones, x.ExistenciaActualGalones, disponibleGalones = x.ExistenciaActualGalones, espacioDisponibleGalones = x.CapacidadGalones - x.ExistenciaActualGalones }).ToListAsync());
@@ -56,6 +56,7 @@ public class InventarioController(TicketsCombustibleDbContext db, IAuditoriaServ
         {
             return Conflict(pg.MessageText);
         }
+        await realtime.PublishMovementAsync(movimiento.Id);
         return Created($"api/inventario/movimientos/{movimiento.Id}", movimiento);
     }
 }

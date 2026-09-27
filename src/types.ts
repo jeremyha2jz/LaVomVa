@@ -49,6 +49,7 @@ export interface Tank {
 
 export interface InventoryMovement {
   id: number
+  tankId?: number
   tank: string
   type: 'ENTRADA' | 'SALIDA' | 'AJUSTE_POSITIVO' | 'AJUSTE_NEGATIVO' | 'MERMA'
   gallons: number

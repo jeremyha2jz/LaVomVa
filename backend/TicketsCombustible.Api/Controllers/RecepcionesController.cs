@@ -11,7 +11,7 @@ namespace TicketsCombustible.Api.Controllers;
 
 [ApiController]
 [Route("api/recepciones")]
-public class RecepcionesController(TicketsCombustibleDbContext db, IAuditoriaService auditoria, NotificacionService notifications) : ControllerBase
+public class RecepcionesController(TicketsCombustibleDbContext db, IAuditoriaService auditoria, NotificacionService notifications, IInventoryRealtimePublisher realtime) : ControllerBase
 {
     [HttpGet("proveedores")]
     public async Task<IActionResult> Proveedores() => Ok(await db.Proveedores.Where(x => x.Activo).OrderBy(x => x.Nombre).ToListAsync());
@@ -45,16 +45,22 @@ public class RecepcionesController(TicketsCombustibleDbContext db, IAuditoriaSer
         foreach (var tankId in request.Detalles.Select(x => x.TanqueId).Order())
             _ = await db.Tanques.FromSqlInterpolated($"SELECT * FROM tanques WHERE id_tanque={tankId} FOR UPDATE").AsNoTracking().SingleAsync();
         var recepcion = new RecepcionCombustible { ProveedorId = request.ProveedorId, NumeroFactura = request.NumeroFactura, FechaRecepcion = DateTime.SpecifyKind(request.FechaRecepcion, DateTimeKind.Unspecified), UsuarioReceptorId = actorId, Observaciones = request.Observaciones };
+        List<long> movementIds = [];
         try
         {
             db.Recepciones.Add(recepcion); await db.SaveChangesAsync();
-            db.DetallesRecepcion.AddRange(request.Detalles.Select(x => new DetalleRecepcion { RecepcionId = recepcion.Id, TanqueId = x.TanqueId, VolumenRecibidoGalones = x.VolumenRecibidoGalones, CostoUnitario = x.CostoUnitario }));
+            var detalles = request.Detalles.Select(x => new DetalleRecepcion { RecepcionId = recepcion.Id, TanqueId = x.TanqueId, VolumenRecibidoGalones = x.VolumenRecibidoGalones, CostoUnitario = x.CostoUnitario }).ToList();
+            db.DetallesRecepcion.AddRange(detalles);
             await db.SaveChangesAsync();
             foreach (var tankId in request.Detalles.Select(x => x.TanqueId))
             {
                 var stockAfter = await db.Tanques.AsNoTracking().Where(x => x.Id == tankId).Select(x => x.ExistenciaActualGalones).SingleAsync();
                 await notifications.SincronizarEpisodioInventarioAsync(tankId, stockAfter);
             }
+            var detailIds = detalles.Select(x => x.Id.ToString()).ToList();
+            movementIds = await db.MovimientosInventario.AsNoTracking()
+                .Where(x => x.ReferenciaTipo == "RECEPCION" && x.ReferenciaId != null && detailIds.Contains(x.ReferenciaId))
+                .OrderBy(x => x.Id).Select(x => x.Id).ToListAsync();
             await auditoria.RegistrarAsync("RECEIPT_CREATED", "RECEPCION", recepcion.Id.ToString(), "EXITO",
                 datosNuevos: new { recepcion.Id, recepcion.ProveedorId, recepcion.NumeroFactura, recepcion.FechaRecepcion, detalles = request.Detalles.Select(x => new { x.TanqueId, x.VolumenRecibidoGalones, x.CostoUnitario }) });
             await transaction.CommitAsync();
@@ -64,6 +70,7 @@ public class RecepcionesController(TicketsCombustibleDbContext db, IAuditoriaSer
         {
             return Conflict(pg.MessageText);
         }
+        foreach (var movementId in movementIds) await realtime.PublishMovementAsync(movementId);
         return Created($"api/recepciones/{recepcion.Id}", new { recepcion, request.Detalles });
     }
 }

@@ -1,6 +1,7 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { api, clearSession, loadLiveData, login as apiLogin, register as apiRegister, savedSession } from '../services/api'
 import type { Catalogs, FuelRequest, InventoryMovement, Session, Tank, Ticket, ToastMessage } from '../types'
+import { applyInventoryUpdate, applyMovementCreated, initialTankMovementIds, isNewerTankMovement, createInventoryRealtimeClient } from '../services/inventoryRealtime'
 
 export type NewRequest = Pick<FuelRequest, 'employee' | 'employeeCode' | 'vehicle' | 'department' | 'fuelType' | 'requestedGallons' | 'expiresAt' | 'kind' | 'reason'> & {
   employeeId?: number; vehicleId?: number; departmentId?: number; fuelTypeId?: number
@@ -18,6 +19,7 @@ interface AppState {
   tanks: Tank[]
   movements: InventoryMovement[]
   toasts: ToastMessage[]
+  realtimeRevision: number
   login: (username: string, password: string) => Promise<void>
   logout: () => void
   refresh: () => Promise<void>
@@ -42,6 +44,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastMessage[]>([])
   const [loading, setLoading] = useState(!!session)
   const [error, setError] = useState<string | null>(null)
+  const [realtimeRevision, setRealtimeRevision] = useState(0)
+  const lastMovementByTank = useRef(new Map<number, number>())
+  const liveInventoryEvents = useRef(new Map<number, { movementId: number; event: import('../services/inventoryRealtime').InventoryUpdatedEvent }>())
 
   async function refresh() {
     setLoading(true)
@@ -50,7 +55,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setCatalogs(data.catalogs)
       setRequests(data.requests)
       setTickets(data.tickets)
-      setTanks(data.tanks)
+      lastMovementByTank.current = initialTankMovementIds(data.movements)
+      setTanks(data.tanks.map((tank) => {
+        const latest = liveInventoryEvents.current.get(tank.id)
+        if (latest && latest.movementId > (lastMovementByTank.current.get(tank.id) ?? 0)) {
+          lastMovementByTank.current.set(tank.id, latest.movementId)
+          return applyInventoryUpdate([tank], latest.event)[0]
+        }
+        return tank
+      }))
       setMovements(data.movements)
       setError(null)
     } catch (cause) {
@@ -62,6 +75,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (session) void refresh().catch(() => {})
+    else {
+      lastMovementByTank.current.clear()
+      liveInventoryEvents.current.clear()
+    }
+  }, [session?.token])
+
+  useEffect(() => {
+    if (!session) return
+    const realtime = createInventoryRealtimeClient({
+      getToken: () => savedSession()?.token ?? session.token,
+      synchronize: () => refresh().catch(() => {}),
+      onReconnected: () => setRealtimeRevision((revision) => revision + 1),
+      onInventoryUpdated: (event) => {
+        if (!isNewerTankMovement(lastMovementByTank.current, event.tankId, event.movementId)) return
+        liveInventoryEvents.current.set(event.tankId, { movementId: event.movementId, event })
+        setTanks((current) => applyInventoryUpdate(current, event))
+      },
+      onMovementCreated: (event) => {
+        setMovements((current) => applyMovementCreated(current, tanks, event))
+      },
+      onCriticalInventoryChanged: (event) => {
+        notify(
+          event.critical ? 'Inventario en nivel crítico' : 'Inventario recuperado',
+          `Tanque #${event.tankId}: ${event.currentQuantity.toLocaleString('es-DO')} gal.`,
+          event.critical ? 'warning' : 'success',
+        )
+      },
+    })
+    return () => { void realtime.stop() }
   }, [session?.token])
 
   function notify(title: string, description: string, tone: ToastMessage['tone'] = 'success') {
@@ -72,7 +114,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   async function login(username: string, password: string) { setSession(await apiLogin(username, password)) }
   async function register(username: string, email: string, name: string, password: string) { await apiRegister(username, email, name, password) }
-  function logout() { clearSession(); setSession(null); setRequests([]); setTickets([]); setTanks([]); setMovements([]); setCatalogs(emptyCatalogs); setError(null) }
+  function logout() { clearSession(); setSession(null); lastMovementByTank.current.clear(); liveInventoryEvents.current.clear(); setRequests([]); setTickets([]); setTanks([]); setMovements([]); setCatalogs(emptyCatalogs); setError(null) }
 
   async function addRequest(item: NewRequest) {
     if (!item.employeeId || !item.vehicleId || !item.departmentId || !item.fuelTypeId) throw new Error('Selecciona datos válidos de los catálogos.')
@@ -110,7 +152,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return true
   }
 
-  const value: AppState = { loading, error, session, catalogs, requests, tickets, tanks, movements, toasts, login, register, logout, refresh, addRequest, resolveRequest, cancelTicket, receiveFuel, removeToast: (id) => setToasts((items) => items.filter((item) => item.id !== id)), notify }
+  const value: AppState = { loading, error, session, catalogs, requests, tickets, tanks, movements, toasts, realtimeRevision, login, register, logout, refresh, addRequest, resolveRequest, cancelTicket, receiveFuel, removeToast: (id) => setToasts((items) => items.filter((item) => item.id !== id)), notify }
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
 }
 

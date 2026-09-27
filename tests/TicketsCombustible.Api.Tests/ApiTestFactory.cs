@@ -22,8 +22,9 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
 
     public FakeEmailSender EmailFake => Services.GetRequiredService<FakeEmailSender>();
     public FakeSmsSender SmsFake => Services.GetRequiredService<FakeSmsSender>();
+    public CapturingInventoryEventSink InventoryEvents => Services.GetRequiredService<CapturingInventoryEventSink>();
 
-    public void ResetProviders() { EmailFake.Reset(); SmsFake.Reset(); }
+    public void ResetProviders() { EmailFake.Reset(); SmsFake.Reset(); InventoryEvents.Reset(); }
 
     public ApiTestFactory(string connectionString)
     {
@@ -67,6 +68,11 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
             services.AddSingleton<IEmailSender>(provider => provider.GetRequiredService<FakeEmailSender>());
             services.AddSingleton<FakeSmsSender>();
             services.AddSingleton<ISmsSender>(provider => provider.GetRequiredService<FakeSmsSender>());
+            services.AddSingleton<CapturingInventoryEventSink>();
+            services.RemoveAll<IInventoryEventSink>();
+            services.AddSingleton<IInventoryEventSink>(provider => new TestingInventoryEventSink(
+                provider.GetRequiredService<SignalRInventoryEventSink>(),
+                provider.GetRequiredService<CapturingInventoryEventSink>()));
         });
     }
 

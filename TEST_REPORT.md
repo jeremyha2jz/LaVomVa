@@ -1,57 +1,55 @@
 # Informe de ejecución QA
 
-## Fase RF-23 — notificaciones persistentes
+## Fase RF-15 — inventario en tiempo real
 
 Fecha: 2026-09-27. Validación final ejecutada con `pnpm test:all` contra un PostgreSQL temporal basado en `DATABASE_FINALLL` y migraciones 001–006. El script apagó y eliminó el clúster temporal al terminar. No se usó producción, deploy, push ni proveedores reales de correo/SMS.
 
 ### Resultado
 
-| Suite | Anterior | Nuevos en RF-23 | Total | Pasaron | Fallaron | Omitidos |
+| Suite | Anterior | Nuevos en RF-15 | Total | Pasaron | Fallaron | Omitidos |
 |---|---:|---:|---:|---:|---:|---:|
-| Web (Vitest) | 36 | 2 | 38 | 38 | 0 | 0 |
+| Web (Vitest) | 38 | 7 | 45 | 45 | 0 | 0 |
 | PWA (Node test) | 13 | 0 | 13 | 13 | 0 | 0 |
-| API (xUnit + PostgreSQL) | 164 | 12 | 176 | 176 | 0 | 0 |
-| **Total** | **213** | **14** | **227** | **227** | **0** | **0** |
+| API (xUnit + PostgreSQL) | 176 | 6 | 182 | 182 | 0 | 0 |
+| **Total** | **227** | **13** | **240** | **240** | **0** | **0** |
 
-Los 213 casos de regresión se conservaron. No se añadieron skips ni se debilitaron asserts. Las pruebas nuevas cubren fan-out/deduplicación concurrente, pertenencia y lectura por usuario, filtros/contador, roles, umbral temporal, expirados/terminales, carrera de stock, episodios de nivel bajo, entrega definitiva EMAIL/SMS, ajustes, rollback transaccional y error visible de lectura desde la campana.
+Se conservaron los 227 casos previos; no se eliminaron tests, no se añadieron skips ni se debilitaron asserts. Los 13 nuevos cubren conexión y eventos SignalR en la web, integración del contexto con Dashboard, reconexión/REST sync, deduplicación y secuencia por tanque, movimientos de despacho/recepción/ajustes/merma, transiciones críticas, rollback/cierre diario, aislamiento de fallos post-commit, autenticación del Hub y una conexión SignalR real de prueba que compara el evento con PostgreSQL.
 
 ### Cobertura
 
 | Área | Anterior | Nueva | Cambio |
 |---|---:|---:|---:|
-| API líneas | 91.79% | **91.85%** | +0.06 pp |
-| API ramas | 75.84% | **75.71%** | −0.13 pp |
-| API métodos | 94.13% | **92.91%** (393/423) | −1.22 pp |
-| Web líneas | 61.51% | **62.92%** | +1.41 pp |
-| Web ramas | 47.62% | **47.55%** | −0.07 pp |
+| API líneas | 91.85% | **91.85%** | — |
+| API ramas | 75.71% | **75.70%** | −0.01 pp |
+| API métodos | 92.91% (393/423) | **92.47% (430/465)** | −0.44 pp |
+| Web líneas | 62.92% | **69.24%** | +6.32 pp |
+| Web ramas | 47.55% | **49.11%** | +1.56 pp |
 | PWA líneas | 87.58% | **87.58%** | — |
 | PWA ramas | 60.87% | **60.87%** | — |
 
-La API conserva los mínimos de RF-23 (90% líneas, 70% ramas). El pequeño descenso de ramas/métodos corresponde a caminos de manejo de errores y estados de la campana que no cambian la regresión funcional.
+La API conserva los mínimos de RF-15 (90% líneas, 70% ramas). PWA no se modificó y conserva cobertura de 87.58% líneas y 60.87% ramas.
 
-### RF-23 — notificaciones
+### RF-15 — inventario en tiempo real
 
 - Estado anterior: **PARTIAL**. Estado nuevo: **PASS**.
-- Se amplía la tabla existente `notificaciones` con severidad, fecha de lectura, metadata JSONB y clave idempotente; un índice único parcial por destinatario+clave evita duplicados en ejecuciones concurrentes.
-- Tipos implementados: `TICKET_PROXIMO_A_VENCER`, `TICKET_VENCIDO`, `INVENTARIO_BAJO`, `FALLO_INTEGRACION`, `AJUSTE_INVENTARIO`.
-- El procesador periódico reutiliza el umbral UTC de dos días de `TicketLifecycleService`; ignora tickets consumidos/anulados y no modifica el estado persistido del ticket.
-- Las operaciones de despacho, recepción y ajuste sincronizan el episodio con bloqueo de fila del tanque. La transición NORMAL→CRÍTICO notifica una vez; al recuperar sobre el umbral se cierra el episodio. El índice idempotente añade una protección a nivel de base.
-- `FALLO_INTEGRACION` solo se crea para `FALLIDO` definitivo; resultado `PENDIENTE`/incierto no crea alerta. Correo/SMS siguen usando fakes.
-- Destinatarios: ADMINISTRADOR y SUPERVISOR reciben todos los tipos; DESPACHADOR recibe vencimientos e inventario bajo; AUDITOR puede consultar exclusivamente sus propias filas, pero no recibe fan-out de eventos operativos. CONSULTA/SOLICITANTE reciben 403.
-- API: GET `/api/notificaciones` con filtros `tipo`, `leida`, `desde`, `hasta`, paginación; GET `/api/notificaciones/no-leidas`; POST `/{id}/leer`; POST `/leer-todas`. JWT identifica y limita todas las operaciones al usuario propietario; un ID ajeno da 404. Marcar leído es idempotente.
-- La campana carga lista/contador por REST al abrir, vuelve a sincronizar al recuperar foco y consulta cada 30 segundos. IDs repetidos se consolidan localmente. RF-15 sigue PARTIAL: todavía no existe SignalR/SSE y REST persistente es el respaldo/fuente de verdad.
-- El `SolicitudProgramacionWorker` existente evalúa las notificaciones de ticket al arrancar y en cada intervalo configurado (60 s por defecto), con tratamiento de errores separado del scheduler de solicitudes.
-- RF-21 y RS-06 permanecen PASS: los eventos de origen ya auditan ajustes y entregas; no se agregó auditoría redundante de lectura de notificación. RF-24 y RS-02 permanecen PARTIAL, aunque se ampliaron las pruebas de sus contratos/matriz.
+- Hub autenticado `/hubs/inventory` con SignalR; el navegador utiliza el JWT existente mediante `access_token` solo en esa ruta. Todos los roles autenticados reciben el mismo alcance de lectura que los GET REST actuales.
+- `InventoryUpdated`, `InventoryMovementCreated` y `CriticalInventoryChanged` contienen snapshot de movimiento/stock persistido, secuencia `movementId`, estación y hora UTC. Solo se emiten tras commit; fallos de fan-out quedan en log y no alteran operaciones confirmadas.
+- Despacho y recepción usan los movimientos automáticos insertados por los triggers. Ajuste positivo/negativo y merma publican el movimiento de `movimientos_inventario`. La transición crítica se publica únicamente al cambiar entre normal/crítico y convive con las notificaciones persistentes RF-23.
+- El contexto web mantiene una sola conexión, aplica cambios por tanque, ignora eventos de stock antiguos, añade movimientos recientes, limpia listeners y sincroniza REST de inventario/movimientos y notificaciones tras reconectar. SignalR no almacena eventos ni sustituye REST.
+- La suite incluye conexión Long Polling de Hub real dentro de `WebApplicationFactory`, operación PostgreSQL real y comprobación de saldo del evento contra el stock persistido. No requiere sockets o servicios externos.
+- El Hub transmite dentro de la instancia actual; para escalar horizontalmente se necesitará backplane SignalR o servicio equivalente.
+
+### RF-23 — regresión
+
+- Estado: continúa **PASS**. Sus pruebas de persistencia, deduplicación, permisos, filtros y sincronización REST pasaron en esta suite. Se añade REST sync de notificaciones después de reconectar.
 
 ### Bugs
 
-- Nuevo: BUG-13 (HIGH), incompatibilidad temporal al insertar una notificación dentro de una operación. Corregido mediante conversión explícita UTC → `timestamp without time zone`; regresión en fallos de proveedor, episodios de inventario y rollback de ajuste.
-- Corregidos: 1. Pendientes: 0.
-- La medición de fecha sugerida de `ScheduleManager` se volvió determinista con reloj fijo; el rango y asserts preexistentes se conservaron.
+- Bugs de producto nuevos encontrados en RF-15: **0**. Bugs corregidos: **0**. Pendientes nuevos: **0**. Los casos de rollback y fallo del transporte son regresiones de RF-15; no se hallaron defectos adicionales.
 
-Archivos de RF-23: migración `006_persistent_notifications.sql`, modelo/DbContext/API/servicios de notificación, scheduler, integración de inventario/despacho/recepción/entrega, cliente API web, AppShell, pruebas, README y matrices.
+Archivos RF-15: Hub/contratos/servicio API, controladores de inventario/despacho/recepción, configuración SignalR/JWT, cliente compartido/contexto web, pruebas, proxy Vite, README y matriz SRS.
 
-Comando final ejecutado: `pnpm test:all` — **227 passed, 0 failed, 0 skipped**.
+Comando final ejecutado: `pnpm test:all` — **240 passed, 0 failed, 0 skipped**.
 
 Fecha: 2026-09-27. Fase RF-11 ejecutada con `pnpm test:all` contra PostgreSQL temporal basado en `DATABASE_FINALLL` y migraciones 001–005. El script eliminó el clúster temporal al terminar. No se usó producción, deploy, push, SMTP real ni gateway SMS real.
 

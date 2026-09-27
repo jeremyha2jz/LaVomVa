@@ -14,7 +14,7 @@ namespace TicketsCombustible.Api.Controllers;
 [ApiController]
 [Authorize(Roles = "ADMINISTRADOR,DESPACHADOR")]
 [Route("api/despachos")]
-public class DespachosController(TicketsCombustibleDbContext db, IMemoryCache cache, IAuditoriaService auditoria, TicketLifecycleService lifecycle, NotificacionService notifications) : ControllerBase
+public class DespachosController(TicketsCombustibleDbContext db, IMemoryCache cache, IAuditoriaService auditoria, TicketLifecycleService lifecycle, NotificacionService notifications, IInventoryRealtimePublisher realtime) : ControllerBase
 {
     [HttpPost]
     public async Task<IActionResult> Registrar(RegistrarDespachoRequest request)
@@ -50,10 +50,14 @@ public class DespachosController(TicketsCombustibleDbContext db, IMemoryCache ca
         if (tanque.ExistenciaActualGalones < request.GalonesServidos) return Conflict("Inventario insuficiente.");
         var despacho = new Despacho { TicketId = ticket.Id, TanqueId = tanque.Id, EstacionId = estacionId, OperadorId = operadorId, GalonesServidos = request.GalonesServidos, OdometroKm = request.OdometroKm, IdentidadConfirmada = true, Observaciones = request.Observaciones };
         var ticketBefore = new { estado = ticketState.ToString(), ticket.CantidadAutorizadaGalones };
+        long? movementId = null;
         db.Despachos.Add(despacho);
         try
         {
             await db.SaveChangesAsync();
+            movementId = await db.MovimientosInventario.AsNoTracking()
+                .Where(x => x.ReferenciaTipo == "DESPACHO" && x.ReferenciaId == despacho.Id.ToString())
+                .Select(x => (long?)x.Id).SingleOrDefaultAsync();
             var stockAfter = await db.Tanques.AsNoTracking().Where(x => x.Id == tanque.Id).Select(x => x.ExistenciaActualGalones).SingleAsync();
             await notifications.SincronizarEpisodioInventarioAsync(tanque.Id, stockAfter);
             await auditoria.RegistrarAsync("DISPATCH_RECORDED", "DESPACHO", despacho.Id.ToString(), "EXITO", ticketBefore,
@@ -77,6 +81,7 @@ public class DespachosController(TicketsCombustibleDbContext db, IMemoryCache ca
             return Conflict("El ticket dejó de estar disponible durante el despacho.");
         }
         cache.Remove(validationKey);
+        if (movementId.HasValue) await realtime.PublishMovementAsync(movementId.Value);
         return Ok(new { ok = true, mensaje = "Despacho registrado", despacho });
     }
 }

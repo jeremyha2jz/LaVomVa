@@ -7,6 +7,7 @@ using System.Security.Claims;
 using System.Text.Json.Serialization;
 using TicketsCombustible.Api.Data;
 using TicketsCombustible.Api.Services;
+using TicketsCombustible.Api.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
 var connectionString = builder.Configuration.GetConnectionString("TicketsCombustible")
@@ -22,6 +23,10 @@ if (!builder.Environment.IsEnvironment("Testing")) builder.Services.AddHostedSer
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<TicketLifecycleService>();
 builder.Services.AddScoped<NotificacionService>();
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<SignalRInventoryEventSink>();
+builder.Services.AddSingleton<IInventoryEventSink>(services => services.GetRequiredService<SignalRInventoryEventSink>());
+builder.Services.AddScoped<IInventoryRealtimePublisher, InventoryRealtimePublisher>();
 builder.Services.AddScoped<TicketNotificationProcessor>();
 builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
 builder.Services.AddHttpClient<ISmsSender, HttpSmsSender>();
@@ -41,6 +46,13 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
     };
     options.Events = new JwtBearerEvents
     {
+        OnMessageReceived = context =>
+        {
+            var accessToken = context.Request.Query["access_token"];
+            if (!string.IsNullOrEmpty(accessToken) && context.HttpContext.Request.Path.StartsWithSegments("/hubs/inventory"))
+                context.Token = accessToken;
+            return Task.CompletedTask;
+        },
         OnTokenValidated = async context =>
         {
             if (!long.TryParse(context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier), out var userId)) { context.Fail("Sesión inválida."); return; }
@@ -72,6 +84,7 @@ app.UseCors("pwa");
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+app.MapHub<InventoryHub>("/hubs/inventory");
 app.Run();
 
 public partial class Program { }

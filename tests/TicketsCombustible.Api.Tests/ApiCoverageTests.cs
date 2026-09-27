@@ -6,6 +6,8 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.Http.Connections;
+using Microsoft.AspNetCore.SignalR.Client;
 using Npgsql;
 using TicketsCombustible.Api.Contracts;
 using TicketsCombustible.Api.Data;
@@ -838,6 +840,207 @@ public sealed class ApiCoverageTests(QaFixture qa)
         Assert.Equal(2, await db.MovimientosInventario.CountAsync());
         Assert.Equal(0, await db.Recepciones.CountAsync());
         Client.DefaultRequestHeaders.Authorization = null;
+    }
+
+    [Fact]
+    public async Task SignalR_publica_ajustes_mermas_y_solo_transiciones_reales_de_nivel_critico()
+    {
+        await qa.ResetAsync();
+        var actor = await LoginAsync("qa.inventory.live", "SUPERVISOR");
+        var catalog = await SeedCatalogAsync(stock: 10m);
+        var sink = qa.Factory.InventoryEvents;
+
+        async Task Adjust(string type, decimal amount)
+        {
+            var response = await Client.PostAsJsonAsync("api/inventario/ajustes", new { tanqueId = catalog.TankId, tipo = type, cantidadGalones = amount, motivo = "Prueba realtime", usuarioId = actor.Id });
+            Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        }
+
+        await Adjust("AJUSTE_NEGATIVO", 6m); // 10 -> 4: NORMAL to CRITICO
+        await Adjust("MERMA", 1m);          // 4 -> 3: remains CRITICO
+        await Adjust("AJUSTE_POSITIVO", 4m); // 3 -> 7: CRITICO to NORMAL
+        await Adjust("AJUSTE_POSITIVO", 1m); // 7 -> 8: remains NORMAL
+
+        Assert.Equal(4, sink.Events.Count);
+        Assert.Equal(new[] { "AJUSTE_NEGATIVO", "MERMA", "AJUSTE_POSITIVO", "AJUSTE_POSITIVO" }, sink.Events.Select(x => x.Updated.MovementType));
+        Assert.Equal(new[] { (10m, 4m), (4m, 3m), (3m, 7m), (7m, 8m) }, sink.Events.Select(x => (x.Updated.PreviousQuantity, x.Updated.CurrentQuantity)));
+        Assert.Equal(new bool?[] { true, null, false, null }, sink.Events.Select(x => (bool?)x.CriticalChange?.Critical));
+        Assert.All(sink.Events, item =>
+        {
+            Assert.Equal(catalog.TankId, item.Updated.TankId);
+            Assert.Equal(catalog.StationId, item.Updated.StationId);
+            Assert.Equal(item.Updated.MovementId, item.Movement.MovementId);
+            Assert.Equal(item.Updated.CurrentQuantity, item.Movement.CurrentQuantity);
+            Assert.InRange(item.Updated.Percentage, 0m, 100m);
+        });
+        await using var scope = qa.Factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+        var stock = await db.Tanques.Where(x => x.Id == catalog.TankId).Select(x => x.ExistenciaActualGalones).SingleAsync();
+        Assert.Equal(8m, stock);
+        Assert.Equal(stock, sink.Events[^1].Updated.CurrentQuantity);
+    }
+
+    [Fact]
+    public async Task SignalR_con_ajustes_concurrentes_conserva_snapshot_y_la_version_mas_nueva()
+    {
+        await qa.ResetAsync();
+        var actor = await LoginAsync("qa.inventory.live.concurrent", "SUPERVISOR");
+        var catalog = await SeedCatalogAsync(stock: 20m);
+        var sink = qa.Factory.InventoryEvents;
+        var first = Client.PostAsJsonAsync("api/inventario/ajustes", new { tanqueId = catalog.TankId, tipo = "AJUSTE_POSITIVO", cantidadGalones = 2m, motivo = "Concurrent A", usuarioId = actor.Id });
+        var second = Client.PostAsJsonAsync("api/inventario/ajustes", new { tanqueId = catalog.TankId, tipo = "AJUSTE_POSITIVO", cantidadGalones = 3m, motivo = "Concurrent B", usuarioId = actor.Id });
+        var responses = await Task.WhenAll(first, second);
+        Assert.All(responses, response => Assert.Equal(HttpStatusCode.Created, response.StatusCode));
+        Assert.Equal(2, sink.Events.Count);
+        Assert.All(sink.Events, item => Assert.Equal(item.Updated.CurrentQuantity, item.Movement.CurrentQuantity));
+        Assert.Equal(25m, sink.Events.OrderBy(x => x.Updated.MovementId).Last().Updated.CurrentQuantity);
+        Assert.Equal(25m, await TankStockAsync(catalog.TankId));
+    }
+
+    [Fact]
+    public async Task SignalR_publica_recepcion_y_despacho_con_movimientos_persistidos_y_rechazos_no_publican()
+    {
+        await qa.ResetAsync();
+        var actor = await LoginAsync("qa.inventory.live.dispatch", "ADMINISTRADOR");
+        var catalog = await SeedCatalogAsync(stock: 20m);
+        var supplier = new Proveedor { Nombre = "Realtime QA supplier", Activo = true };
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+            db.Proveedores.Add(supplier);
+            await db.SaveChangesAsync();
+        }
+
+        var receipt = await Client.PostAsJsonAsync("api/recepciones", new
+        {
+            proveedorId = supplier.Id, numeroFactura = "QA-REALTIME-01", fechaRecepcion = DateTime.UtcNow,
+            usuarioReceptorId = actor.Id, detalles = new[] { new { tanqueId = catalog.TankId, volumenRecibidoGalones = 7m, costoUnitario = (decimal?)null } }
+        });
+        Assert.Equal(HttpStatusCode.Created, receipt.StatusCode);
+        Assert.Single(qa.Factory.InventoryEvents.Events);
+        Assert.Equal("ENTRADA", qa.Factory.InventoryEvents.Events[0].Movement.MovementType);
+        Assert.Equal(20m, qa.Factory.InventoryEvents.Events[0].Updated.PreviousQuantity);
+        Assert.Equal(27m, qa.Factory.InventoryEvents.Events[0].Updated.CurrentQuantity);
+
+        var ticket = await IssueTicketAsync(catalog, 3m);
+        Assert.True(await IsQrValidAsync(ticket.Token));
+        var dispatch = await Client.PostAsJsonAsync("api/despachos", new { ticketId = ticket.Id.ToString(), galonesServidos = 3m, identidadConfirmada = true, tanqueId = catalog.TankId });
+        Assert.Equal(HttpStatusCode.OK, dispatch.StatusCode);
+        var events = qa.Factory.InventoryEvents.Events;
+        Assert.Equal(2, events.Count);
+        Assert.Equal("SALIDA", events[1].Movement.MovementType);
+        Assert.Equal(27m, events[1].Updated.PreviousQuantity);
+        Assert.Equal(24m, events[1].Updated.CurrentQuantity);
+        Assert.Equal("DESPACHO", events[1].Movement.ReferenceType);
+
+        var duplicate = await Client.PostAsJsonAsync("api/despachos", new { ticketId = ticket.Id.ToString(), galonesServidos = 3m, identidadConfirmada = true, tanqueId = catalog.TankId });
+        Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
+        Assert.Equal(2, qa.Factory.InventoryEvents.Events.Count);
+        await using var verify = qa.Factory.Services.CreateAsyncScope();
+        var database = verify.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+        var persistedMovement = await database.MovimientosInventario.AsNoTracking().SingleAsync(x => x.Id == events[1].Updated.MovementId);
+        Assert.Equal(persistedMovement.ReferenciaId, events[1].Movement.ReferenceId);
+        Assert.Equal(24m, await database.Tanques.Where(x => x.Id == catalog.TankId).Select(x => x.ExistenciaActualGalones).SingleAsync());
+    }
+
+    [Fact]
+    public async Task SignalR_no_publica_rollback_o_movimiento_rechazado_por_cierre_y_error_de_hub_no_revierte_commit()
+    {
+        await qa.ResetAsync();
+        var actor = await LoginAsync("qa.inventory.live.failures", "ADMINISTRADOR");
+        var catalog = await SeedCatalogAsync(stock: 10m);
+        var sink = qa.Factory.InventoryEvents;
+
+        sink.FailPublishes = true;
+        var accepted = await Client.PostAsJsonAsync("api/inventario/ajustes", new { tanqueId = catalog.TankId, tipo = "AJUSTE_POSITIVO", cantidadGalones = 1m, motivo = "Sink unavailable", usuarioId = actor.Id });
+        Assert.Equal(HttpStatusCode.Created, accepted.StatusCode);
+        Assert.Equal(11m, await TankStockAsync(catalog.TankId));
+        sink.Reset();
+
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+            await db.Database.ExecuteSqlRawAsync("""
+                CREATE OR REPLACE FUNCTION qa_rechazar_auditoria_live() RETURNS trigger AS $$
+                BEGIN IF NEW.accion = 'INVENTORY_ADJUSTED' THEN RAISE EXCEPTION 'QA rollback'; END IF; RETURN NEW; END;
+                $$ LANGUAGE plpgsql;
+                CREATE TRIGGER qa_rechazar_auditoria_live BEFORE INSERT ON auditoria FOR EACH ROW EXECUTE FUNCTION qa_rechazar_auditoria_live();
+                """);
+        }
+        try
+        {
+            await Assert.ThrowsAsync<DbUpdateException>(() => Client.PostAsJsonAsync("api/inventario/ajustes", new { tanqueId = catalog.TankId, tipo = "AJUSTE_NEGATIVO", cantidadGalones = 2m, motivo = "Rollback", usuarioId = actor.Id }));
+            Assert.Empty(sink.Events);
+            Assert.Equal(11m, await TankStockAsync(catalog.TankId));
+        }
+        finally
+        {
+            await using var scope = qa.Factory.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+            await db.Database.ExecuteSqlRawAsync("DROP TRIGGER IF EXISTS qa_rechazar_auditoria_live ON auditoria; DROP FUNCTION IF EXISTS qa_rechazar_auditoria_live();");
+        }
+
+        var closed = await PostCloseAsync(Client, catalog.StationId, DateOnly.FromDateTime(DateTime.UtcNow), [(catalog.TankId, 11m)]);
+        Assert.Equal(HttpStatusCode.Created, closed.StatusCode);
+        sink.Reset();
+        var rejected = await Client.PostAsJsonAsync("api/inventario/ajustes", new { tanqueId = catalog.TankId, tipo = "AJUSTE_POSITIVO", cantidadGalones = 1m, motivo = "Closed day", usuarioId = actor.Id });
+        Assert.Equal(HttpStatusCode.Conflict, rejected.StatusCode);
+        Assert.Empty(sink.Events);
+        Assert.Equal(11m, await TankStockAsync(catalog.TankId));
+    }
+
+    [Fact]
+    public async Task Hub_de_inventario_exige_jwt_valido_en_negotiate()
+    {
+        await qa.ResetAsync();
+        var anonymous = await Client.PostAsync("hubs/inventory/negotiate?negotiateVersion=1", null);
+        Assert.Equal(HttpStatusCode.Unauthorized, anonymous.StatusCode);
+
+        var actor = await LoginAsync("qa.inventory.hub", "CONSULTA");
+        Client.DefaultRequestHeaders.Authorization = null;
+        var valid = await Client.PostAsync($"hubs/inventory/negotiate?negotiateVersion=1&access_token={Uri.EscapeDataString(actor.Token)}", null);
+        Assert.Equal(HttpStatusCode.OK, valid.StatusCode);
+        var alteredParts = actor.Token.Split('.');
+        alteredParts[2] = (alteredParts[2][0] == 'A' ? "B" : "A") + alteredParts[2][1..];
+        var altered = string.Join('.', alteredParts);
+        var invalid = await Client.PostAsync($"hubs/inventory/negotiate?negotiateVersion=1&access_token={Uri.EscapeDataString(altered)}", null);
+        Assert.Equal(HttpStatusCode.Unauthorized, invalid.StatusCode);
+    }
+
+    [Fact]
+    public async Task SignalR_real_recibe_movimiento_persistido_despues_de_operacion_de_inventario()
+    {
+        await qa.ResetAsync();
+        var actor = await LoginAsync("qa.inventory.realhub", "SUPERVISOR");
+        var catalog = await SeedCatalogAsync(stock: 20m);
+        await using var connection = new HubConnectionBuilder()
+            .WithUrl(new Uri(qa.Factory.Server.BaseAddress, "/hubs/inventory"), options =>
+            {
+                options.Transports = HttpTransportType.LongPolling;
+                options.AccessTokenProvider = () => Task.FromResult<string?>(actor.Token);
+                options.HttpMessageHandlerFactory = _ => qa.Factory.Server.CreateHandler();
+            })
+            .Build();
+        var received = new TaskCompletionSource<InventoryUpdatedEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
+        connection.On<InventoryUpdatedEvent>("InventoryUpdated", message => received.TrySetResult(message));
+        await connection.StartAsync();
+
+        var response = await Client.PostAsJsonAsync("api/inventario/ajustes", new { tanqueId = catalog.TankId, tipo = "AJUSTE_NEGATIVO", cantidadGalones = 3m, motivo = "Hub integration", usuarioId = actor.Id });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var eventPayload = await received.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(catalog.TankId, eventPayload.TankId);
+        Assert.Equal(20m, eventPayload.PreviousQuantity);
+        Assert.Equal(17m, eventPayload.CurrentQuantity);
+        Assert.Equal("AJUSTE_NEGATIVO", eventPayload.MovementType);
+        Assert.Equal(17m, await TankStockAsync(catalog.TankId));
+        await connection.StopAsync();
+    }
+
+    private async Task<decimal> TankStockAsync(long tankId)
+    {
+        await using var scope = qa.Factory.Services.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>().Tanques
+            .Where(x => x.Id == tankId).Select(x => x.ExistenciaActualGalones).SingleAsync();
     }
 
     [Fact]

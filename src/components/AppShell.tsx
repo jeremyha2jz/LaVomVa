@@ -32,7 +32,7 @@ export function AppShell({ page, onNavigate, children }: { page: PageKey; onNavi
   const [notifications, setNotifications] = useState<AppNotification[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [notificationError, setNotificationError] = useState('')
-  const { toasts, removeToast, tanks, tickets, requests, session, logout } = useApp()
+  const { toasts, removeToast, tanks, tickets, requests, session, logout, realtimeRevision } = useApp()
   const profileName = session?.name || ''
   const profileRole = session?.role || ''
   const initials = profileName.split(' ').map((part) => part[0]).slice(0, 2).join('').toUpperCase()
@@ -61,6 +61,9 @@ export function AppShell({ page, onNavigate, children }: { page: PageKey; onNavi
     window.addEventListener('focus', onFocus)
     return () => { window.clearInterval(timer); window.removeEventListener('focus', onFocus) }
   }, [session, syncNotifications])
+  useEffect(() => {
+    if (realtimeRevision > 0) void syncNotifications()
+  }, [realtimeRevision, syncNotifications])
   const navigate = (target: PageKey) => { window.location.hash = target; onNavigate(target) }
   const openNotification = async (item: AppNotification) => {
     if (!item.leida) {
