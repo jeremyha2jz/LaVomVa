@@ -4,12 +4,14 @@ using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using TicketsCombustible.Api.Data;
 using TicketsCombustible.Api.Models;
+using Npgsql;
+using TicketsCombustible.Api.Services;
 
 namespace TicketsCombustible.Api.Controllers;
 
 [ApiController]
 [Route("api/recepciones")]
-public class RecepcionesController(TicketsCombustibleDbContext db) : ControllerBase
+public class RecepcionesController(TicketsCombustibleDbContext db, IAuditoriaService auditoria) : ControllerBase
 {
     [HttpGet("proveedores")]
     public async Task<IActionResult> Proveedores() => Ok(await db.Proveedores.Where(x => x.Activo).OrderBy(x => x.Nombre).ToListAsync());
@@ -19,7 +21,11 @@ public class RecepcionesController(TicketsCombustibleDbContext db) : ControllerB
     public async Task<IActionResult> CrearProveedor(Proveedor proveedor)
     {
         if (string.IsNullOrWhiteSpace(proveedor.Nombre)) return BadRequest("El nombre del proveedor es obligatorio.");
-        db.Proveedores.Add(proveedor); await db.SaveChangesAsync();
+        db.Proveedores.Add(proveedor);
+        await using var transaction = await db.Database.BeginTransactionAsync();
+        await db.SaveChangesAsync();
+        await auditoria.RegistrarAsync("SUPPLIER_CREATED", "PROVEEDOR", proveedor.Id.ToString(), "EXITO", datosNuevos: new { proveedor.Id, proveedor.Nombre, proveedor.Rnc, proveedor.Telefono, proveedor.Correo, proveedor.Activo });
+        await transaction.CommitAsync();
         return Created($"api/recepciones/proveedores/{proveedor.Id}", proveedor);
     }
 
@@ -37,9 +43,20 @@ public class RecepcionesController(TicketsCombustibleDbContext db) : ControllerB
 
         await using var transaction = await db.Database.BeginTransactionAsync();
         var recepcion = new RecepcionCombustible { ProveedorId = request.ProveedorId, NumeroFactura = request.NumeroFactura, FechaRecepcion = DateTime.SpecifyKind(request.FechaRecepcion, DateTimeKind.Unspecified), UsuarioReceptorId = actorId, Observaciones = request.Observaciones };
-        db.Recepciones.Add(recepcion); await db.SaveChangesAsync();
-        db.DetallesRecepcion.AddRange(request.Detalles.Select(x => new DetalleRecepcion { RecepcionId = recepcion.Id, TanqueId = x.TanqueId, VolumenRecibidoGalones = x.VolumenRecibidoGalones, CostoUnitario = x.CostoUnitario }));
-        await db.SaveChangesAsync(); await transaction.CommitAsync();
+        try
+        {
+            db.Recepciones.Add(recepcion); await db.SaveChangesAsync();
+            db.DetallesRecepcion.AddRange(request.Detalles.Select(x => new DetalleRecepcion { RecepcionId = recepcion.Id, TanqueId = x.TanqueId, VolumenRecibidoGalones = x.VolumenRecibidoGalones, CostoUnitario = x.CostoUnitario }));
+            await db.SaveChangesAsync();
+            await auditoria.RegistrarAsync("RECEIPT_CREATED", "RECEPCION", recepcion.Id.ToString(), "EXITO",
+                datosNuevos: new { recepcion.Id, recepcion.ProveedorId, recepcion.NumeroFactura, recepcion.FechaRecepcion, detalles = request.Detalles.Select(x => new { x.TanqueId, x.VolumenRecibidoGalones, x.CostoUnitario }) });
+            await transaction.CommitAsync();
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException pg && pg.SqlState == PostgresErrorCodes.RaiseException &&
+            (pg.MessageText.StartsWith("Inventario insuficiente", StringComparison.Ordinal) || pg.MessageText.StartsWith("El movimiento excede la capacidad", StringComparison.Ordinal) || pg.MessageText.StartsWith("El día operacional ya está cerrado", StringComparison.Ordinal)))
+        {
+            return Conflict(pg.MessageText);
+        }
         return Created($"api/recepciones/{recepcion.Id}", new { recepcion, request.Detalles });
     }
 }

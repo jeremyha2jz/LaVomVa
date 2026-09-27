@@ -13,6 +13,7 @@ public class TicketsCombustibleDbContext(DbContextOptions<TicketsCombustibleDbCo
     public DbSet<Estacion> Estaciones => Set<Estacion>();
     public DbSet<SolicitudCombustible> Solicitudes => Set<SolicitudCombustible>();
     public DbSet<Ticket> Tickets => Set<Ticket>();
+    public DbSet<EnvioTicket> EnviosTicket => Set<EnvioTicket>();
     public DbSet<Despacho> Despachos => Set<Despacho>();
     public DbSet<Usuario> Usuarios => Set<Usuario>();
     public DbSet<Rol> Roles => Set<Rol>();
@@ -21,6 +22,8 @@ public class TicketsCombustibleDbContext(DbContextOptions<TicketsCombustibleDbCo
     public DbSet<Proveedor> Proveedores => Set<Proveedor>();
     public DbSet<RecepcionCombustible> Recepciones => Set<RecepcionCombustible>();
     public DbSet<DetalleRecepcion> DetallesRecepcion => Set<DetalleRecepcion>();
+    public DbSet<CierreDiario> CierresDiarios => Set<CierreDiario>();
+    public DbSet<RegistroAuditoria> Auditoria => Set<RegistroAuditoria>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -32,7 +35,12 @@ public class TicketsCombustibleDbContext(DbContextOptions<TicketsCombustibleDbCo
         modelBuilder.Entity<Estacion>().ToTable("estaciones").HasKey(x => x.Id);
         modelBuilder.Entity<SolicitudCombustible>().ToTable("solicitudes_combustible").HasKey(x => x.Id);
         modelBuilder.Entity<Ticket>().ToTable("tickets").HasKey(x => x.Id);
+        modelBuilder.Entity<EnvioTicket>().ToTable("envios_ticket").HasKey(x => x.Id);
+        modelBuilder.Entity<EnvioTicket>().Property(x => x.SolicitadoEn).HasColumnType("timestamp without time zone");
+        modelBuilder.Entity<EnvioTicket>().Property(x => x.FechaEnvio).HasColumnType("timestamp without time zone");
         modelBuilder.Entity<Despacho>().ToTable("despachos").HasKey(x => x.Id);
+        modelBuilder.Entity<Despacho>().Property(x => x.FechaHora).HasColumnType("timestamp without time zone")
+            .HasDefaultValueSql("timezone('UTC', transaction_timestamp())").ValueGeneratedOnAdd();
         modelBuilder.Entity<Usuario>().ToTable("usuarios").HasKey(x => x.Id);
         modelBuilder.Entity<Rol>().ToTable("roles").HasKey(x => x.Id);
         modelBuilder.Entity<UsuarioRol>().ToTable("usuario_roles").HasKey(x => new { x.UsuarioId, x.RolId });
@@ -42,6 +50,12 @@ public class TicketsCombustibleDbContext(DbContextOptions<TicketsCombustibleDbCo
         modelBuilder.Entity<RecepcionCombustible>().ToTable("recepciones_combustible").HasKey(x => x.Id);
         modelBuilder.Entity<RecepcionCombustible>().Property(x => x.FechaRecepcion).HasColumnType("timestamp without time zone");
         modelBuilder.Entity<DetalleRecepcion>().ToTable("detalle_recepciones").HasKey(x => x.Id);
+        modelBuilder.Entity<CierreDiario>().ToTable("cierres_diarios").HasKey(x => x.Id);
+        modelBuilder.Entity<CierreDiario>().Property(x => x.Fecha).HasColumnType("date");
+        modelBuilder.Entity<CierreDiario>().Property(x => x.CerradoEn).HasColumnType("timestamp without time zone");
+        modelBuilder.Entity<CierreDiario>().Property(x => x.DetalleTanques).HasColumnType("jsonb");
+        modelBuilder.Entity<RegistroAuditoria>().ToTable("auditoria").HasKey(x => x.Id);
+        modelBuilder.Entity<RegistroAuditoria>().Property(x => x.FechaHora).HasColumnType("timestamp without time zone");
         modelBuilder.Entity<SolicitudCombustible>().Property(x => x.Estado).HasConversion<string>();
         modelBuilder.Entity<SolicitudCombustible>().Property(x => x.FechaSolicitud).HasDefaultValueSql("CURRENT_TIMESTAMP").ValueGeneratedOnAdd();
         modelBuilder.Entity<SolicitudCombustible>().Property(x => x.FechaVencimiento).HasColumnType("timestamp without time zone");
@@ -49,6 +63,7 @@ public class TicketsCombustibleDbContext(DbContextOptions<TicketsCombustibleDbCo
         modelBuilder.Entity<Ticket>().Property(x => x.Estado).HasConversion<string>();
         modelBuilder.Entity<Ticket>().Property(x => x.FechaVencimiento).HasColumnType("timestamp without time zone");
         modelBuilder.Entity<Ticket>().Property(x => x.FechaCreacion).HasColumnType("timestamp without time zone");
+        modelBuilder.Entity<Ticket>().Property(x => x.AnuladoEn).HasColumnType("timestamp without time zone");
         modelBuilder.Entity<Ticket>().Property(x => x.FechaCreacion).HasDefaultValueSql("CURRENT_TIMESTAMP").ValueGeneratedOnAdd();
         modelBuilder.Entity<Ticket>().Property(x => x.NumeroSecuencial).ValueGeneratedOnAdd();
     }

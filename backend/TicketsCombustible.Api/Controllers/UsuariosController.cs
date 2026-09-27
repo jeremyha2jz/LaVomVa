@@ -5,13 +5,14 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using TicketsCombustible.Api.Data;
 using TicketsCombustible.Api.Models;
+using TicketsCombustible.Api.Services;
 
 namespace TicketsCombustible.Api.Controllers;
 
 [ApiController]
 [Authorize(Roles = "ADMINISTRADOR")]
 [Route("api/gestion/usuarios")]
-public class UsuariosController(TicketsCombustibleDbContext db) : ControllerBase
+public class UsuariosController(TicketsCombustibleDbContext db, IAuditoriaService auditoria) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> Listar()
@@ -38,6 +39,8 @@ public class UsuariosController(TicketsCombustibleDbContext db) : ControllerBase
         await db.SaveChangesAsync();
         db.UsuarioRoles.Add(new UsuarioRol { UsuarioId = usuario.Id, RolId = request.RolId });
         await db.SaveChangesAsync();
+        var rol = await db.Roles.Where(x => x.Id == request.RolId).Select(x => x.Nombre).SingleAsync();
+        await auditoria.RegistrarAsync("USER_CREATED", "USUARIO", usuario.Id.ToString(), "EXITO", datosNuevos: Snapshot(usuario, request.RolId, rol), usuarioId: usuario.Id);
         await transaction.CommitAsync();
         return Created($"api/gestion/usuarios/{usuario.Id}", new { usuario.Id, usuario.NombreUsuario, usuario.Correo, usuario.NombreCompleto, usuario.Telefono, request.RolId });
     }
@@ -51,6 +54,9 @@ public class UsuariosController(TicketsCombustibleDbContext db) : ControllerBase
         if (await db.Usuarios.AnyAsync(x => x.Id != id && x.Correo == request.Correo)) return Conflict("El correo ya existe.");
         if (!await db.Roles.AnyAsync(x => x.Id == request.RolId && x.Activo)) return BadRequest("Rol inválido.");
         var rolesActuales = await db.UsuarioRoles.Where(x => x.UsuarioId == id).ToListAsync();
+        var rolAnteriorId = rolesActuales.SingleOrDefault()?.RolId;
+        var rolAnterior = rolAnteriorId is null ? null : await db.Roles.Where(x => x.Id == rolAnteriorId).Select(x => x.Nombre).SingleOrDefaultAsync();
+        var anterior = Snapshot(usuario, rolAnteriorId, rolAnterior);
         if (rolesActuales.Count != 1 || rolesActuales[0].RolId != request.RolId)
         {
             var adminId = await db.Roles.Where(x => x.Nombre == "ADMINISTRADOR").Select(x => x.Id).SingleOrDefaultAsync();
@@ -63,7 +69,14 @@ public class UsuariosController(TicketsCombustibleDbContext db) : ControllerBase
         usuario.NombreCompleto = request.NombreCompleto.Trim();
         usuario.Correo = request.Correo.Trim().ToLowerInvariant();
         usuario.Telefono = request.Telefono;
+        await using var transaction = await db.Database.BeginTransactionAsync();
         await db.SaveChangesAsync();
+        var nuevoRol = await db.Roles.Where(x => x.Id == request.RolId).Select(x => x.Nombre).SingleAsync();
+        var nuevo = Snapshot(usuario, request.RolId, nuevoRol);
+        await auditoria.RegistrarAsync("USER_UPDATED", "USUARIO", usuario.Id.ToString(), "EXITO", anterior, nuevo);
+        if (rolAnteriorId != request.RolId)
+            await auditoria.RegistrarAsync("USER_ROLE_CHANGED", "USUARIO", usuario.Id.ToString(), "EXITO", new { rolId = rolAnteriorId, rol = rolAnterior }, new { rolId = request.RolId, rol = nuevoRol });
+        await transaction.CommitAsync();
         return Ok(new { usuario.Id, usuario.NombreUsuario, usuario.Correo, usuario.NombreCompleto, usuario.Telefono, request.RolId });
     }
 
@@ -73,8 +86,11 @@ public class UsuariosController(TicketsCombustibleDbContext db) : ControllerBase
         if (request.Contrasena.Length < 12) return BadRequest("La contraseña debe tener al menos 12 caracteres.");
         var usuario = await db.Usuarios.FindAsync(id);
         if (usuario is null) return NotFound();
+        await using var transaction = await db.Database.BeginTransactionAsync();
         usuario.PasswordHash = CrearHash(request.Contrasena);
         await db.SaveChangesAsync();
+        await auditoria.RegistrarAsync("USER_PASSWORD_RESET", "USUARIO", usuario.Id.ToString(), "EXITO", detalle: "Contraseña restablecida; el valor no se registra.");
+        await transaction.CommitAsync();
         return NoContent();
     }
 
@@ -84,8 +100,12 @@ public class UsuariosController(TicketsCombustibleDbContext db) : ControllerBase
         var usuario = await db.Usuarios.FindAsync(id);
         if (usuario is null) return NotFound();
         if (long.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var actorId) && actorId == id) return Conflict("No puedes desactivar tu propia cuenta.");
+        var anterior = Snapshot(usuario);
+        await using var transaction = await db.Database.BeginTransactionAsync();
         usuario.Activo = false;
         await db.SaveChangesAsync();
+        await auditoria.RegistrarAsync("USER_DEACTIVATED", "USUARIO", usuario.Id.ToString(), "EXITO", anterior, Snapshot(usuario));
+        await transaction.CommitAsync();
         return NoContent();
     }
 
@@ -94,10 +114,26 @@ public class UsuariosController(TicketsCombustibleDbContext db) : ControllerBase
     {
         var usuario = await db.Usuarios.FindAsync(id);
         if (usuario is null) return NotFound();
+        var anterior = Snapshot(usuario);
+        await using var transaction = await db.Database.BeginTransactionAsync();
         usuario.Activo = true;
         await db.SaveChangesAsync();
+        await auditoria.RegistrarAsync("USER_ACTIVATED", "USUARIO", usuario.Id.ToString(), "EXITO", anterior, Snapshot(usuario));
+        await transaction.CommitAsync();
         return NoContent();
     }
+
+    private static object Snapshot(Usuario usuario, long? rolId = null, string? rol = null) => new
+    {
+        usuario.Id,
+        usuario.NombreUsuario,
+        usuario.Correo,
+        usuario.NombreCompleto,
+        usuario.Telefono,
+        usuario.Activo,
+        rolId,
+        rol
+    };
 
     private static string CrearHash(string password)
     {

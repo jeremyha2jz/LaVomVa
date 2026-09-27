@@ -38,7 +38,12 @@ public sealed class QaFixture : IAsyncLifetime
         if (Factory is not null) await Factory.DisposeAsync();
     }
 
-    public async Task ResetAsync() => await Factory.ResetDatabaseAsync();
+    public async Task ResetAsync()
+    {
+        Client.DefaultRequestHeaders.Authorization = null;
+        Factory.ResetProviders();
+        await Factory.ResetDatabaseAsync();
+    }
 }
 
 [Collection("QA database")]
@@ -86,6 +91,10 @@ public sealed class ApiIntegrationTests(QaFixture qa)
         var alteredParts = admin.Token.Split('.');
         alteredParts[2] = (alteredParts[2][0] == 'A' ? "B" : "A") + alteredParts[2][1..];
         Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", string.Join('.', alteredParts));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Client.GetAsync("api/catalogos/roles")).StatusCode);
+        var wrongRole = new JwtSecurityToken(claims: new[] { new Claim(ClaimTypes.NameIdentifier, admin.Id.ToString()), new Claim(ClaimTypes.Role, "ADMINISTRADOR"), new Claim(ClaimTypes.Role, "CONSULTA") },
+            expires: DateTime.UtcNow.AddMinutes(5), signingCredentials: new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(ApiTestFactory.JwtSecret)), SecurityAlgorithms.HmacSha256));
+        Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", new JwtSecurityTokenHandler().WriteToken(wrongRole));
         Assert.Equal(HttpStatusCode.Unauthorized, (await Client.GetAsync("api/catalogos/roles")).StatusCode);
         var expired = new JwtSecurityToken(claims: new[] { new Claim(ClaimTypes.NameIdentifier, admin.Id.ToString()), new Claim(ClaimTypes.Role, "ADMINISTRADOR") },
             expires: DateTime.UtcNow.AddMinutes(-5), signingCredentials: new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(ApiTestFactory.JwtSecret)), SecurityAlgorithms.HmacSha256));
@@ -171,11 +180,22 @@ public sealed class ApiIntegrationTests(QaFixture qa)
         var tank = await (await Client.PostAsJsonAsync("api/gestion/tanques", new { codigo = "QA-T1", nombre = "Tanque QA", estacionId = station.GetProperty("id").GetInt64(), tipoCombustibleId = fuelId, capacidadGalones = 100m, existenciaActualGalones = 0m, nivelCriticoGalones = 5m, activo = true })).Content.ReadFromJsonAsync<JsonElement>();
         var tankId = tank.GetProperty("id").GetInt64();
         Assert.Equal(HttpStatusCode.Created, (await Client.PostAsJsonAsync("api/inventario/ajustes", new { tanqueId = tankId, tipo = "AJUSTE_POSITIVO", cantidadGalones = 30m, motivo = "Carga inicial QA", usuarioId = admin.Id })).StatusCode);
+        var adjustmentMovement = await db.MovimientosInventario.SingleAsync(x => x.TanqueId == tankId);
+        Assert.Equal("AJUSTE_POSITIVO", adjustmentMovement.TipoMovimiento);
+        Assert.Equal("AJUSTE_MANUAL", adjustmentMovement.ReferenciaTipo);
+        Assert.Equal(30m, adjustmentMovement.CantidadGalones);
+        Assert.Equal(admin.Id, adjustmentMovement.UsuarioId);
+        Assert.NotEqual(default, adjustmentMovement.FechaHora);
         var supplier = await (await Client.PostAsJsonAsync("api/recepciones/proveedores", new { nombre = "Proveedor QA", rnc = "000000000", activo = true })).Content.ReadFromJsonAsync<JsonElement>();
         var receive = await Client.PostAsJsonAsync("api/recepciones", new { proveedorId = supplier.GetProperty("id").GetInt64(), numeroFactura = "QA-FACT-001", fechaRecepcion = DateTime.UtcNow, observaciones = "recepción QA", detalles = new[] { new { tanqueId = tankId, volumenRecibidoGalones = 10m, costoUnitario = 1m } } });
         Assert.Equal(HttpStatusCode.Created, receive.StatusCode);
         Assert.Equal(40m, await db.Tanques.Where(x => x.Id == tankId).Select(x => x.ExistenciaActualGalones).SingleAsync());
         Assert.Equal(2, await db.MovimientosInventario.CountAsync(x => x.TanqueId == tankId));
+        var receptionMovement = await db.MovimientosInventario.SingleAsync(x => x.TanqueId == tankId && x.ReferenciaTipo == "RECEPCION");
+        Assert.Equal("ENTRADA", receptionMovement.TipoMovimiento);
+        Assert.Equal(10m, receptionMovement.CantidadGalones);
+        Assert.False(string.IsNullOrWhiteSpace(receptionMovement.ReferenciaId));
+        Assert.Equal(admin.Id, receptionMovement.UsuarioId);
 
         var expiry = DateTime.UtcNow.AddDays(2);
         var request = await (await Client.PostAsJsonAsync("api/solicitudes", new { empleadoId = employee.GetProperty("id").GetInt64(), vehiculoId = veh.GetProperty("id").GetInt64(), departamentoId = depId, tipoCombustibleId = fuelId, cantidadSolicitadaGalones = 10m, fechaVencimiento = expiry, tipoSolicitud = "MANUAL" })).Content.ReadFromJsonAsync<JsonElement>();
@@ -190,6 +210,11 @@ public sealed class ApiIntegrationTests(QaFixture qa)
         Assert.Equal(34m, await db.Tanques.Where(x => x.Id == tankId).Select(x => x.ExistenciaActualGalones).SingleAsync());
         Assert.Equal(1, await db.Despachos.CountAsync(x => x.TicketId == ticketId));
         Assert.Equal(3, await db.MovimientosInventario.CountAsync(x => x.TanqueId == tankId));
+        var dispatchMovement = await db.MovimientosInventario.SingleAsync(x => x.TanqueId == tankId && x.ReferenciaTipo == "DESPACHO");
+        Assert.Equal("SALIDA", dispatchMovement.TipoMovimiento);
+        Assert.Equal(6m, dispatchMovement.CantidadGalones);
+        Assert.False(string.IsNullOrWhiteSpace(dispatchMovement.ReferenciaId));
+        Assert.NotEqual(default, dispatchMovement.FechaHora);
         Assert.Equal("CONSUMIDO", (await db.Tickets.Where(x => x.Id == ticketId).Select(x => x.Estado).SingleAsync()).ToString());
         var replay = await Client.PostAsJsonAsync("api/despachos", new { ticketId = ticketId.ToString(), galonesServidos = 6m, identidadConfirmada = true, tanqueId = tankId });
         Assert.Equal(HttpStatusCode.Conflict, replay.StatusCode);

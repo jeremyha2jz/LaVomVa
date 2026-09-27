@@ -9,26 +9,36 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using TicketsCombustible.Api.Data;
 using TicketsCombustible.Api.Models;
+using TicketsCombustible.Api.Services;
 
 namespace TicketsCombustible.Api.Controllers;
 
 [ApiController]
 [AllowAnonymous]
 [Route("api/login")]
-public class AuthController(TicketsCombustibleDbContext db, IConfiguration configuration) : ControllerBase
+public class AuthController(TicketsCombustibleDbContext db, IConfiguration configuration, IAuditoriaService auditoria) : ControllerBase
 {
     [HttpPost]
     public async Task<IActionResult> Login(LoginRequest request)
     {
         var usuario = await db.Usuarios.SingleOrDefaultAsync(x => x.NombreUsuario == request.Usuario);
-        if (usuario is null || !VerificarHash(request.Contrasena, usuario.PasswordHash)) return Unauthorized(new { mensaje = "Usuario o contraseña incorrectos" });
-        if (!usuario.Activo) return StatusCode(403, new { mensaje = "La cuenta espera activación o está desactivada." });
+        if (usuario is null || !VerificarHash(request.Contrasena, usuario.PasswordHash))
+        {
+            await auditoria.RegistrarAsync("LOGIN", "USUARIO", usuario?.Id.ToString() ?? request.Usuario.Trim(), "FALLO", detalle: "Credenciales inválidas.", usuarioId: usuario?.Id);
+            return Unauthorized(new { mensaje = "Usuario o contraseña incorrectos" });
+        }
+        if (!usuario.Activo)
+        {
+            await auditoria.RegistrarAsync("LOGIN", "USUARIO", usuario.Id.ToString(), "FALLO", detalle: "Cuenta inactiva.", usuarioId: usuario.Id);
+            return StatusCode(403, new { mensaje = "La cuenta espera activación o está desactivada." });
+        }
         var roles = await (from ur in db.UsuarioRoles join r in db.Roles on ur.RolId equals r.Id where ur.UsuarioId == usuario.Id && r.Activo select r.Nombre).ToListAsync();
         roles = roles.OrderBy(x => x == "ADMINISTRADOR" ? 0 : x == "SUPERVISOR" ? 1 : x == "DESPACHADOR" ? 2 : x == "SOLICITANTE" ? 3 : 4).ToList();
         var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, usuario.Id.ToString()), new(ClaimTypes.Name, usuario.NombreUsuario) };
         claims.AddRange(roles.Select(rol => new Claim(ClaimTypes.Role, rol)));
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(configuration["Jwt:Key"]!));
         var token = new JwtSecurityToken(claims: claims, expires: DateTime.UtcNow.AddHours(8), signingCredentials: new SigningCredentials(key, SecurityAlgorithms.HmacSha256));
+        await auditoria.RegistrarAsync("LOGIN", "USUARIO", usuario.Id.ToString(), "EXITO", datosNuevos: new { roles }, detalle: "Inicio de sesión exitoso.", usuarioId: usuario.Id);
         return Ok(new { token = new JwtSecurityTokenHandler().WriteToken(token), id = usuario.Id, nombre = usuario.NombreCompleto, rol = roles.FirstOrDefault() ?? "CONSULTA" });
     }
 
@@ -55,6 +65,7 @@ public class AuthController(TicketsCombustibleDbContext db, IConfiguration confi
         await db.SaveChangesAsync();
         db.UsuarioRoles.Add(new UsuarioRol { UsuarioId = usuario.Id, RolId = rol.Id });
         await db.SaveChangesAsync();
+        await auditoria.RegistrarAsync("USER_REGISTERED", "USUARIO", usuario.Id.ToString(), "EXITO", datosNuevos: new { usuario.NombreUsuario, usuario.Correo, usuario.NombreCompleto, usuario.Activo, rol = rol.Nombre }, usuarioId: usuario.Id);
         await transaction.CommitAsync();
         return Ok(new { mensaje = "Cuenta creada. Espera la activación de un administrador." });
     }
@@ -83,6 +94,7 @@ public class AuthController(TicketsCombustibleDbContext db, IConfiguration confi
         await db.SaveChangesAsync();
         db.UsuarioRoles.Add(new UsuarioRol { UsuarioId = usuario.Id, RolId = rolAdmin.Id });
         await db.SaveChangesAsync();
+        await auditoria.RegistrarAsync("ADMIN_BOOTSTRAPPED", "USUARIO", usuario.Id.ToString(), "EXITO", datosNuevos: new { usuario.NombreUsuario, usuario.Correo, usuario.NombreCompleto, rol = rolAdmin.Nombre }, usuarioId: usuario.Id);
         await transaction.CommitAsync();
         return Ok(new { mensaje = "Administrador inicial creado." });
     }

@@ -4,12 +4,14 @@ using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using TicketsCombustible.Api.Data;
 using TicketsCombustible.Api.Models;
+using Npgsql;
+using TicketsCombustible.Api.Services;
 
 namespace TicketsCombustible.Api.Controllers;
 
 [ApiController]
 [Route("api/inventario")]
-public class InventarioController(TicketsCombustibleDbContext db) : ControllerBase
+public class InventarioController(TicketsCombustibleDbContext db, IAuditoriaService auditoria) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> Consultar() => Ok(await db.Tanques.Where(x => x.Activo).OrderBy(x => x.Codigo).Select(x => new { x.Id, x.Codigo, x.EstacionId, x.TipoCombustibleId, x.CapacidadGalones, x.ExistenciaActualGalones, disponibleGalones = x.ExistenciaActualGalones, espacioDisponibleGalones = x.CapacidadGalones - x.ExistenciaActualGalones }).ToListAsync());
@@ -31,8 +33,26 @@ public class InventarioController(TicketsCombustibleDbContext db) : ControllerBa
         if (request.Tipo is not ("AJUSTE_POSITIVO" or "AJUSTE_NEGATIVO" or "MERMA")) return BadRequest("Tipo permitido: AJUSTE_POSITIVO, AJUSTE_NEGATIVO o MERMA.");
         if (!await db.Tanques.AnyAsync(x => x.Id == request.TanqueId && x.Activo)) return NotFound("Tanque no encontrado o inactivo.");
         if (!await db.Usuarios.AnyAsync(x => x.Id == actorId && x.Activo)) return BadRequest("Usuario inválido.");
+        var stockBefore = await db.Tanques.Where(x => x.Id == request.TanqueId).Select(x => x.ExistenciaActualGalones).SingleAsync();
         var movimiento = new MovimientoInventario { TanqueId = request.TanqueId, TipoMovimiento = request.Tipo, CantidadGalones = request.CantidadGalones, ReferenciaTipo = "AJUSTE_MANUAL", Motivo = request.Motivo, UsuarioId = actorId, FechaHora = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified) };
-        db.MovimientosInventario.Add(movimiento); await db.SaveChangesAsync(); await db.Entry(movimiento).ReloadAsync();
+        db.MovimientosInventario.Add(movimiento);
+        await using var transaction = await db.Database.BeginTransactionAsync();
+        try
+        {
+            await db.SaveChangesAsync();
+            await db.Entry(movimiento).ReloadAsync();
+            var stockAfter = await db.Tanques.AsNoTracking().Where(x => x.Id == request.TanqueId).Select(x => x.ExistenciaActualGalones).SingleAsync();
+            await auditoria.RegistrarAsync("INVENTORY_ADJUSTED", "MOVIMIENTO_INVENTARIO", movimiento.Id.ToString(), "EXITO",
+                new { tanqueId = request.TanqueId, existenciaGalones = stockBefore },
+                new { movimiento.TipoMovimiento, movimiento.CantidadGalones, movimiento.ReferenciaTipo, movimiento.Motivo, existenciaGalones = stockAfter });
+            await transaction.CommitAsync();
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException pg &&
+            pg.SqlState == PostgresErrorCodes.RaiseException &&
+            (pg.MessageText.StartsWith("Inventario insuficiente", StringComparison.Ordinal) || pg.MessageText.StartsWith("El movimiento excede la capacidad", StringComparison.Ordinal) || pg.MessageText.StartsWith("El día operacional ya está cerrado", StringComparison.Ordinal)))
+        {
+            return Conflict(pg.MessageText);
+        }
         return Created($"api/inventario/movimientos/{movimiento.Id}", movimiento);
     }
 }

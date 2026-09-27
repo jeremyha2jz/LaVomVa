@@ -19,17 +19,21 @@ fi
 
 qa_tmp="$(mktemp -d "${TMPDIR:-/tmp}/lavomva-qa.XXXXXX")"
 mkdir -p "$qa_tmp/socket"
-qa_port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
 cleanup() {
   if [[ -f "$qa_tmp/data/postmaster.pid" ]]; then "$pg_bindir/pg_ctl" -D "$qa_tmp/data" -m fast -w stop >/dev/null || true; fi
   rm -rf "$qa_tmp"
 }
 trap cleanup EXIT
+qa_port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
 
 "$pg_bindir/initdb" -D "$qa_tmp/data" -U qa_runner --auth-local=trust --auth-host=trust --no-instructions >/dev/null
 "$pg_bindir/pg_ctl" -D "$qa_tmp/data" -l "$qa_tmp/postgres.log" -o "-h 127.0.0.1 -p $qa_port -k $qa_tmp/socket" -w start >/dev/null
 "$pg_bindir/createdb" -h 127.0.0.1 -p "$qa_port" -U qa_runner lavomva_test
 "$pg_bindir/psql" -h 127.0.0.1 -p "$qa_port" -U qa_runner -d lavomva_test -v ON_ERROR_STOP=1 -f DATABASE_FINALLL >/dev/null
+"$pg_bindir/psql" -h 127.0.0.1 -p "$qa_port" -U qa_runner -d lavomva_test -v ON_ERROR_STOP=1 -f backend/TicketsCombustible.Api/Migrations/001_auditoria_inmutable_y_resultado.sql >/dev/null
+"$pg_bindir/psql" -h 127.0.0.1 -p "$qa_port" -U qa_runner -d lavomva_test -v ON_ERROR_STOP=1 -f backend/TicketsCombustible.Api/Migrations/002_ticket_lifecycle.sql >/dev/null
+"$pg_bindir/psql" -h 127.0.0.1 -p "$qa_port" -U qa_runner -d lavomva_test -v ON_ERROR_STOP=1 -f backend/TicketsCombustible.Api/Migrations/003_cierre_diario.sql >/dev/null
+"$pg_bindir/psql" -h 127.0.0.1 -p "$qa_port" -U qa_runner -d lavomva_test -v ON_ERROR_STOP=1 -f backend/TicketsCombustible.Api/Migrations/004_ticket_delivery.sql >/dev/null
 export QA_TEST_CONNECTION="Host=127.0.0.1;Port=$qa_port;Database=lavomva_test;Username=qa_runner;Pooling=false"
 
 echo "== Web unit tests =="

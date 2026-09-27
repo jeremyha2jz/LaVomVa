@@ -37,7 +37,7 @@ El comando crea una instancia PostgreSQL temporal, carga `DATABASE_FINALLL`, eje
 - Sesión con inicio de sesión, registro público de cuentas de consulta sujetas a activación administrativa y datos cargados exclusivamente desde PostgreSQL.
 - Resumen: inventario total, despachado hoy, tickets activos, solicitudes pendientes, consumo de los últimos 7 días, nivel por tanque y aviso de tanques por debajo del nivel crítico.
 - Solicitudes: listado con búsqueda y filtro por estado, alta con empleado, vehículo, departamento, combustible, galones, vencimiento, tipo (manual, automática o recurrente) y motivo, y aprobación (con galones autorizados) o rechazo. Aprobar emite el ticket automáticamente.
-- Tickets digitales: listado con búsqueda y filtro por estado; administradores y supervisores pueden ver la imagen del QR generada por la API.
+- Tickets digitales: listado con búsqueda y filtro por estado; administradores y supervisores pueden ver el QR y anular tickets elegibles indicando el motivo.
 - Inventario: tarjetas por tanque (existencia, capacidad, nivel crítico, ocupación), últimos movimientos y registro de recepciones de combustible.
 - Recepciones y movimientos: historial filtrable por tipo y exportación a CSV.
 - Reportes: filtros por fecha, departamento y combustible; totales por departamento y por combustible; exportación de tickets a CSV.
@@ -51,7 +51,8 @@ El comando crea una instancia PostgreSQL temporal, carga `DATABASE_FINALLL`, eje
 - Departamentos, empleados, vehículos, estaciones y tanques: crear, editar y desactivar (baja lógica) en `api/gestion`, y consulta de activos en `api/catalogos`.
 - Solicitudes: crear (valida que empleado, vehículo, departamento y combustible existan y estén activos), aprobar y rechazar. Las fechas se aceptan en UTC (`...Z`), con desfase (`-04:00`) o sin zona.
 - Tickets: emisión desde una solicitud aprobada con UUID, número `COM-AAAA-NNNNNN` (prefijo configurable, reinicio anual y sin duplicados gracias a un bloqueo de fila en la base), token aleatorio de 256 bits y HMAC-SHA-256 del token y los datos protegidos del ticket.
-- Validación del QR (`POST /api/tickets/validar`): recalcula y compara el hash, e indica si el ticket es válido, vencido, consumido o anulado.
+- Tickets: `POST /api/tickets/{id}/anular` permite a administradores y supervisores anular tickets con motivo. La fecha, actor y motivo quedan persistidos y auditados; los estados vencido/próximo a vencer se calculan al consultar. La ventana de próximo a vencer es de dos días.
+- Validación del QR (`POST /api/tickets/validar`): recalcula y compara el hash; rechaza tickets vencidos, consumidos y anulados.
 - Despacho: exige identidad confirmada, galones mayores que cero y no más de lo autorizado, tanque compatible e inventario suficiente. La base registra la salida y marca el ticket como consumido; un ticket no se puede despachar dos veces.
 - Recepciones por proveedor y factura, con uno o varios tanques; ajustes positivos, negativos y mermas.
 - Inventario por tanque y últimos 100 movimientos, con existencia anterior y nueva en cada uno. La base impide existencias negativas o por encima de la capacidad.
@@ -74,6 +75,10 @@ Los pasos de la web requieren la API y una cuenta autenticada. Lo que la web aú
 
 **RF-10 — Estado del ticket.** "Tickets digitales" en la web o "Ver tickets" en la app móvil.
 
+**RF-09 — Entrega por correo/SMS.** En "Tickets digitales", un ADMINISTRADOR o SUPERVISOR abre el ticket, elige Correo, SMS o ambos y pulsa "Enviar ticket". La aplicación registra cada intento; si un canal falla de forma confirmada, se puede reintentar solo ese canal. Si el resultado del proveedor es incierto, el envío queda PENDIENTE: consulta el gateway y confirma en el historial si llegó o falló. Esa conciliación exige confirmación, espera al menos cinco minutos y queda auditada. API: `POST /api/tickets/{id}/enviar`, `POST /api/tickets/{id}/reenviar`, `POST /api/tickets/{id}/envios/{envioId}/reconciliar`, `GET /api/tickets/{id}/envios`. Solo ADMINISTRADOR/SUPERVISOR pueden enviar, consultar historial o reconciliar.
+
+Para habilitar proveedores configura SMTP mediante `Smtp__Host`, `Smtp__Port`, `Smtp__Username`, `Smtp__Password`, `Smtp__From`, `Smtp__EnableSsl` y opcionalmente `Smtp__TimeoutMilliseconds`. El gateway SMS configurable requiere `Sms__Endpoint` (solo HTTPS), `Sms__ApiKey`, `Sms__Provider` y opcionalmente `Sms__TimeoutMilliseconds`; recibe JSON `{to,message,idempotencyKey}` y el header `Idempotency-Key`. `TicketDelivery__PublicBaseUrl` debe ser la URL pública HTTPS para el QR SMS. Guarda credenciales como secretos del entorno; no las agregues al repositorio. Las pruebas reemplazan ambos proveedores por fakes y no envían mensajes reales.
+
 **RF-12 y RF-13 — Despacho.** El despacho se hace desde la app móvil escaneando el QR; la web no permite despachar por número. Antes de enviar el despacho, el operador debe marcar que verificó la identidad del conductor.
 
 **RF-14 y RF-16 — Recepción.** Crea proveedor, estación y tanque desde "Administración"; luego ve a "Inventario" → "Registrar recepción" e indica proveedor, factura, tanque, volumen y fecha.
@@ -86,23 +91,24 @@ Los pasos de la web requieren la API y una cuenta autenticada. Lo que la web aú
 
 **RF-22 — Tablero.** Web → "Resumen".
 
+**RF-18 — Cierre diario.** En Web → "Cierres", el usuario autorizado elige estación y fecha operacional UTC, consulta el resumen persistido y registra el inventario físico de cada tanque antes de confirmar. El cierre es definitivo e inmutable. La vista incluye histórico con filtros y descarga del acta PDF. API: `GET /api/cierres-diarios/resumen?estacionId={id}&fecha=YYYY-MM-DD`, `POST /api/cierres-diarios`, `GET /api/cierres-diarios` (filtros `desde`, `hasta`, `estacionId`, `usuarioId`), `GET /api/cierres-diarios/{id}` y `GET /api/cierres-diarios/{id}/pdf`. ADMINISTRADOR, SUPERVISOR y DESPACHADOR crean cierres; esos roles y AUDITOR pueden consultar y descargar actas.
+
 ## Limitaciones y notas conocidas
 
 El detalle requisito por requisito está en el documento de brechas frente al SRS. En resumen:
 
-- **Autenticación y roles.** La API exige JWT en las rutas privadas y restringe las escrituras por rol. Todavía faltan políticas de alcance por usuario y auditoría completa.
+- **Autenticación y roles.** La API exige JWT en las rutas privadas y restringe las escrituras por rol. Todavía faltan políticas de alcance por usuario.
 - **Prueba de validación QR en memoria.** `POST /api/despachos` exige que la misma sesión haya validado recientemente el QR. Una instalación con varias instancias necesita un almacén compartido para esta prueba.
 - **Escaneo QR desde cámara real.** La integración con cámara y permisos del navegador no tiene prueba E2E automatizada; se valida el contrato móvil mediante pruebas unitarias y el flujo servidor mediante integración.
 - **La web y la app móvil usan el mismo puerto (5173).** Para usarlas a la vez, arranca la app móvil con `npm run dev -- --port 5174`.
-- **Zonas horarias mezcladas.** Algunas fechas se guardan en UTC (vencimiento, aprobación, movimientos) y otras con la hora local del servidor de PostgreSQL (creación del ticket, fecha de solicitud). La web interpreta todas como hora local, así que las fechas en UTC se ven desplazadas.
+- **Zonas horarias mezcladas.** El cierre define el día operacional como UTC, desde las 00:00:00 inclusive hasta las 00:00:00 del día siguiente exclusive. La base asigna nuevos movimientos y despachos a UTC. Otras fechas del sistema aún usan hora local de PostgreSQL; la web puede mostrarlas con desplazamiento.
 - **Migración de firma QR.** Los QR existentes firmados con el formato anterior no validan con el HMAC nuevo; antes de desplegar sobre una base con tickets activos, hay que definir una reemisión controlada.
-- **Estados sin uso.** No hay envío ni anulación de tickets, así que `ENVIADO`, `PROXIMO_A_VENCER` y `ANULADO` nunca se asignan.
-- **Tablas sin uso.** Auditoría, notificaciones, cierres diarios y envíos de ticket existen en la base, pero nada escribe en ellas.
-- **Sin cierre diario, auditoría, correo, SMS, PDF, exportación a Excel ni reportes del servidor.** Los reportes de la web se calculan en el navegador con los datos ya cargados.
+- **Estados del ticket.** `PROXIMO_A_VENCER` y `VENCIDO` se derivan de la fecha de vencimiento; `ANULADO`, `PENDIENTE` y `ENVIADO` se persisten. `ENVIADO` requiere confirmación del proveedor en todos los canales solicitados; los resultados de red inciertos requieren conciliación manual. El indicador derivado de vencimiento puede prevalecer sobre el estado persistido en la vista.
+- **Reportes generales.** Los reportes generales se calculan en el navegador; el PDF disponible es el acta de cierre diario.
 - **Solicitudes automáticas y recurrentes:** se guarda el tipo, pero no hay programación que las genere.
 - **Sin transferencias entre tanques:** la base las permite, pero no hay endpoint.
 - **Catálogos adicionales:** estaciones, tanques y proveedores se crean desde "Administración". La edición y desactivación de esos catálogos aún requiere la API.
-- **Cobertura automatizada parcial.** Existen pruebas Vitest para la web, pruebas de contrato móvil y pruebas de integración API/PostgreSQL; falta E2E de navegador, pruebas amplias de validación y auditoría funcional.
+- **Cobertura automatizada parcial.** Existen pruebas Vitest para la web, pruebas de contrato móvil y pruebas de integración API/PostgreSQL; falta E2E de navegador y dispositivo.
 - **Versiones sin fijar.** `package.json` de la web usa `latest` en todas sus dependencias; `pnpm-lock.yaml` fija las versiones, así que instala con `pnpm install --frozen-lockfile`.
 - **Caché de la app móvil.** El service worker sirve `index.html` desde caché; tras un cambio puede hacer falta "Update on reload" o "Unregister" en DevTools → Application → Service Workers.
 

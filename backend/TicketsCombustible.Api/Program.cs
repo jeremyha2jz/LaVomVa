@@ -6,12 +6,21 @@ using System.Text;
 using System.Security.Claims;
 using System.Text.Json.Serialization;
 using TicketsCombustible.Api.Data;
+using TicketsCombustible.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 var connectionString = builder.Configuration.GetConnectionString("TicketsCombustible")
     ?? throw new InvalidOperationException("Falta ConnectionStrings:TicketsCombustible.");
 
 builder.Services.AddDbContext<TicketsCombustibleDbContext>(options => options.UseNpgsql(connectionString));
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<IAuditoriaService, AuditoriaService>();
+builder.Services.AddScoped<CierreDiarioService>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddScoped<TicketLifecycleService>();
+builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
+builder.Services.AddHttpClient<ISmsSender, HttpSmsSender>();
+builder.Services.AddScoped<TicketDeliveryService>();
 builder.Services.AddMemoryCache();
 var jwtKey = builder.Configuration["Jwt:Key"] ?? throw new InvalidOperationException("Falta Jwt:Key.");
 if (Encoding.UTF8.GetByteCount(jwtKey) < 32 || jwtKey.StartsWith("REEMPLAZA_")) throw new InvalidOperationException("Configura Jwt:Key con al menos 32 bytes privados.");

@@ -200,11 +200,13 @@ CREATE TABLE tickets (
     consumido_en                 TIMESTAMP,
     anulado_en                   TIMESTAMP,
     motivo_anulacion             TEXT,
+    id_usuario_anulacion         BIGINT,
     id_usuario_emisor            BIGINT REFERENCES usuarios(id_usuario),
     ruta_pdf                     VARCHAR(255),
     creado_en                    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT chk_ticket_cantidad CHECK (cantidad_autorizada_galones > 0),
-    CONSTRAINT chk_ticket_fechas CHECK (fecha_vencimiento > fecha_creacion)
+    CONSTRAINT chk_ticket_fechas CHECK (fecha_vencimiento > fecha_creacion),
+    CONSTRAINT fk_tickets_usuario_anulacion FOREIGN KEY (id_usuario_anulacion) REFERENCES usuarios(id_usuario)
 );
 
 -- Historial de envío por canal (RF-09). Se deja como bitácora aparte en vez
@@ -218,8 +220,17 @@ CREATE TABLE envios_ticket (
     estado_envio    VARCHAR(20) NOT NULL DEFAULT 'PENDIENTE'
                      CHECK (estado_envio IN ('PENDIENTE','ENVIADO','FALLIDO')),
     detalle_error   TEXT,
-    fecha_envio     TIMESTAMP
+    fecha_envio     TIMESTAMP,
+    intento         INTEGER NOT NULL DEFAULT 1 CHECK (intento > 0),
+    lote_id         UUID NOT NULL DEFAULT gen_random_uuid(),
+    proveedor       VARCHAR(80),
+    resultado       TEXT,
+    idempotency_key UUID NOT NULL DEFAULT gen_random_uuid(),
+    solicitado_en   TIMESTAMP NOT NULL DEFAULT (timezone('UTC', transaction_timestamp())),
+    CONSTRAINT uq_envio_ticket_canal_intento UNIQUE (id_ticket, canal, intento),
+    CONSTRAINT uq_envio_ticket_idempotencia_canal UNIQUE (id_ticket, idempotency_key, canal)
 );
+CREATE UNIQUE INDEX uq_envio_ticket_canal_pendiente ON envios_ticket(id_ticket, canal) WHERE estado_envio = 'PENDIENTE';
 
 -- =====================================================================
 -- 6. DESPACHOS (RF-12, RF-13)
@@ -309,6 +320,10 @@ CREATE TABLE cierres_diarios (
     ruta_acta_pdf                               VARCHAR(255),
     observaciones                                TEXT,
     cerrado_en                                    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    inventario_fisico_galones                    NUMERIC(12,2) NOT NULL DEFAULT 0,
+    cantidad_despachos                            INTEGER NOT NULL DEFAULT 0 CHECK (cantidad_despachos >= 0),
+    estado                                        VARCHAR(20) NOT NULL DEFAULT 'CERRADO' CHECK (estado = 'CERRADO'),
+    detalle_tanques                               JSONB NOT NULL DEFAULT '[]'::JSONB,
     CONSTRAINT uq_cierre_estacion_fecha UNIQUE (id_estacion, fecha)
 );
 
@@ -340,8 +355,22 @@ CREATE TABLE auditoria (
     datos_nuevos                    JSONB,
     direccion_ip                     INET,
     fecha_hora                        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    detalle                             TEXT
+    resultado                         VARCHAR(20) NOT NULL DEFAULT 'EXITO',
+    detalle                             TEXT,
+    CONSTRAINT ck_auditoria_resultado CHECK (resultado IN ('EXITO','FALLO'))
 );
+
+-- Los registros se agregan desde la API y son inmutables para operaciones normales.
+CREATE OR REPLACE FUNCTION fn_bloquear_modificacion_auditoria()
+RETURNS TRIGGER AS $$
+BEGIN
+    RAISE EXCEPTION 'Los registros de auditoría son inmutables';
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_auditoria_inmutable
+BEFORE UPDATE OR DELETE ON auditoria
+FOR EACH ROW EXECUTE FUNCTION fn_bloquear_modificacion_auditoria();
 
 -- =====================================================================
 -- 10. FUNCIONES Y TRIGGERS
@@ -445,9 +474,90 @@ CREATE TRIGGER trg_aplicar_movimiento_inventario
 BEFORE INSERT ON movimientos_inventario
 FOR EACH ROW EXECUTE FUNCTION fn_aplicar_movimiento_inventario();
 
+-- Serializa cada movimiento del tanque con el cierre de su estación/día.
+-- Todas las fechas operacionales del libro se guardan como UTC sin zona.
+CREATE OR REPLACE FUNCTION fn_bloquear_movimiento_dia_cerrado()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_estacion_id BIGINT;
+BEGIN
+    NEW.fecha_hora := timezone('UTC', transaction_timestamp());
+    SELECT id_estacion INTO v_estacion_id FROM tanques WHERE id_tanque = NEW.id_tanque;
+    IF v_estacion_id IS NULL THEN
+        RAISE EXCEPTION 'Tanque inexistente para registrar movimiento';
+    END IF;
+
+    PERFORM 1 FROM estaciones WHERE id_estacion = v_estacion_id FOR UPDATE;
+    IF EXISTS (SELECT 1 FROM cierres_diarios WHERE id_estacion = v_estacion_id AND fecha = NEW.fecha_hora::DATE) THEN
+        RAISE EXCEPTION 'El día operacional ya está cerrado para la estación %', v_estacion_id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_00_bloquear_movimiento_dia_cerrado
+BEFORE INSERT ON movimientos_inventario
+FOR EACH ROW EXECUTE FUNCTION fn_bloquear_movimiento_dia_cerrado();
+
 -- 10.4 Puente automático: un despacho SIEMPRE genera su movimiento de
 -- salida, y marca el ticket como consumido. Así nadie tiene que acordarse
 -- de insertar en movimientos_inventario a mano desde el backend.
+CREATE OR REPLACE FUNCTION fn_validar_transicion_estado_ticket()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_ahora_utc TIMESTAMP := clock_timestamp() AT TIME ZONE 'UTC';
+BEGIN
+    IF NEW.estado = OLD.estado THEN
+        RETURN NEW;
+    END IF;
+
+    IF NEW.estado = 'ANULADO'
+       AND OLD.estado IN ('CREADO','ENVIADO','PENDIENTE','PROXIMO_A_VENCER','VENCIDO') THEN
+        IF NEW.anulado_en IS NULL OR NEW.id_usuario_anulacion IS NULL
+           OR NEW.motivo_anulacion IS NULL OR length(btrim(NEW.motivo_anulacion)) = 0
+           OR length(NEW.motivo_anulacion) > 500 THEN
+            RAISE EXCEPTION 'La anulación requiere usuario, fecha y motivo (1 a 500 caracteres)';
+        END IF;
+        RETURN NEW;
+    END IF;
+
+    IF NEW.estado = 'PENDIENTE'
+       AND OLD.estado IN ('CREADO','ENVIADO','PENDIENTE','PROXIMO_A_VENCER')
+       AND EXISTS (SELECT 1 FROM envios_ticket WHERE id_ticket = OLD.id_ticket AND estado_envio = 'PENDIENTE') THEN
+        RETURN NEW;
+    END IF;
+
+    IF NEW.estado = 'ENVIADO'
+       AND OLD.estado = 'PENDIENTE'
+       AND EXISTS (SELECT 1 FROM envios_ticket WHERE id_ticket = OLD.id_ticket)
+       AND NOT EXISTS (
+           SELECT 1 FROM (
+               SELECT DISTINCT ON (canal) estado_envio
+               FROM envios_ticket WHERE id_ticket = OLD.id_ticket
+               ORDER BY canal, intento DESC
+           ) ultimos
+           WHERE estado_envio <> 'ENVIADO'
+       ) THEN
+        RETURN NEW;
+    END IF;
+
+    IF NEW.estado = 'CONSUMIDO'
+       AND OLD.estado IN ('CREADO','ENVIADO','PENDIENTE','PROXIMO_A_VENCER')
+       AND OLD.fecha_vencimiento > v_ahora_utc
+       AND NEW.consumido_en IS NOT NULL
+       AND EXISTS (SELECT 1 FROM despachos WHERE id_ticket = OLD.id_ticket) THEN
+        RETURN NEW;
+    END IF;
+
+    RAISE EXCEPTION 'Transición inválida de ticket: % -> %', OLD.estado, NEW.estado;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_validar_transicion_estado_ticket ON tickets;
+CREATE TRIGGER trg_validar_transicion_estado_ticket
+BEFORE UPDATE OF estado ON tickets
+FOR EACH ROW EXECUTE FUNCTION fn_validar_transicion_estado_ticket();
+
 CREATE OR REPLACE FUNCTION fn_registrar_movimiento_por_despacho()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -477,6 +587,22 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trg_recepcion_movimiento
 AFTER INSERT ON detalle_recepciones
 FOR EACH ROW EXECUTE FUNCTION fn_registrar_movimiento_por_recepcion();
+
+-- El despacho y su movimiento usan el mismo instante UTC operacional.
+ALTER TABLE despachos ALTER COLUMN fecha_hora SET DEFAULT (timezone('UTC', transaction_timestamp()));
+ALTER TABLE movimientos_inventario ALTER COLUMN fecha_hora SET DEFAULT (timezone('UTC', transaction_timestamp()));
+
+-- Un cierre es un acta histórica inmutable. TRUNCATE sigue disponible para el aislamiento QA.
+CREATE OR REPLACE FUNCTION fn_cierre_diario_inmutable()
+RETURNS TRIGGER AS $$
+BEGIN
+    RAISE EXCEPTION 'Los cierres diarios finalizados son inmutables';
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_cierre_diario_inmutable
+BEFORE UPDATE OR DELETE ON cierres_diarios
+FOR EACH ROW EXECUTE FUNCTION fn_cierre_diario_inmutable();
 
 -- =====================================================================
 -- 11. ÍNDICES
@@ -549,8 +675,8 @@ CREATE OR REPLACE VIEW vw_tickets_alerta AS
 SELECT
     id_ticket, numero_secuencial, id_empleado, id_vehiculo, fecha_vencimiento, estado,
     CASE
-        WHEN fecha_vencimiento < NOW() AND estado NOT IN ('CONSUMIDO','ANULADO') THEN 'VENCIDO'
-        WHEN fecha_vencimiento <= NOW() + INTERVAL '2 days' AND estado NOT IN ('CONSUMIDO','ANULADO') THEN 'PROXIMO_A_VENCER'
+        WHEN fecha_vencimiento <= (NOW() AT TIME ZONE 'UTC') AND estado NOT IN ('CONSUMIDO','ANULADO') THEN 'VENCIDO'
+        WHEN fecha_vencimiento <= (NOW() AT TIME ZONE 'UTC') + INTERVAL '2 days' AND estado NOT IN ('CONSUMIDO','ANULADO') THEN 'PROXIMO_A_VENCER'
         ELSE estado
     END AS estado_calculado
 FROM tickets;
@@ -572,4 +698,3 @@ GROUP BY v.id_vehiculo, v.placa, v.ficha;
 -- =====================================================================
 -- FIN DEL SCRIPT
 -- =====================================================================
-

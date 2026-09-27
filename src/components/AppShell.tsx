@@ -1,8 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Activity, Bell, Boxes, ChevronDown, ClipboardList, FileBarChart, Fuel, Gauge, LayoutDashboard, Menu, QrCode, Search, Settings, ShieldCheck, TicketCheck, Users, X } from 'lucide-react'
+import { Activity, Bell, Boxes, CalendarCheck, ChevronDown, ClipboardList, FileBarChart, Fuel, Gauge, LayoutDashboard, Menu, QrCode, Search, Settings, ShieldCheck, TicketCheck, Users, X } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 
-export type PageKey = 'dashboard' | 'solicitudes' | 'tickets' | 'despacho' | 'inventario' | 'operaciones' | 'catalogos' | 'reportes' | 'administracion'
+export type PageKey = 'dashboard' | 'solicitudes' | 'tickets' | 'despacho' | 'inventario' | 'operaciones' | 'cierres' | 'catalogos' | 'reportes' | 'administracion'
 
 const navigation: { label: string; items: { key: PageKey; label: string; icon: typeof Gauge }[] }[] = [
   { label: 'Operación', items: [
@@ -14,6 +14,7 @@ const navigation: { label: string; items: { key: PageKey; label: string; icon: t
   { label: 'Combustible', items: [
     { key: 'inventario', label: 'Inventario', icon: Fuel },
     { key: 'operaciones', label: 'Recepciones y movimientos', icon: Activity },
+    { key: 'cierres', label: 'Cierre diario', icon: CalendarCheck },
     { key: 'reportes', label: 'Reportes', icon: FileBarChart },
   ] },
   { label: 'Configuración', items: [

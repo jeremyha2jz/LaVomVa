@@ -23,6 +23,7 @@ interface AppState {
   refresh: () => Promise<void>
   addRequest: (request: NewRequest) => Promise<void>
   resolveRequest: (id: number, decision: 'approve' | 'reject', gallons?: number) => Promise<void>
+  cancelTicket: (id: string, motivo: string) => Promise<void>
   receiveFuel: (tankId: number, gallons: number, invoice: string, details?: ReceptionDetails) => Promise<boolean>
   removeToast: (id: number) => void
   notify: (title: string, description: string, tone?: ToastMessage['tone']) => void
@@ -92,6 +93,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     notify(decision === 'approve' ? 'Solicitud aprobada' : 'Solicitud rechazada', decision === 'approve' ? 'Se emitió un ticket digital.' : 'La decisión quedó registrada.', decision === 'approve' ? 'success' : 'warning')
   }
 
+  async function cancelTicket(id: string, motivo: string) {
+    if (!session) throw new Error('Inicia sesión para anular el ticket.')
+    await api.cancelTicket(id, motivo)
+    await refresh()
+    notify('Ticket anulado', 'El ticket ya no puede validarse ni despacharse.', 'warning')
+  }
+
   async function receiveFuel(tankId: number, gallons: number, invoice: string, details: ReceptionDetails = {}): Promise<boolean> {
     const tank = tanks.find((item) => item.id === tankId)
     if (!tank || !Number.isFinite(gallons) || gallons <= 0 || tank.stock + gallons > tank.capacity) return false
@@ -102,7 +110,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return true
   }
 
-  const value: AppState = { loading, error, session, catalogs, requests, tickets, tanks, movements, toasts, login, register, logout, refresh, addRequest, resolveRequest, receiveFuel, removeToast: (id) => setToasts((items) => items.filter((item) => item.id !== id)), notify }
+  const value: AppState = { loading, error, session, catalogs, requests, tickets, tanks, movements, toasts, login, register, logout, refresh, addRequest, resolveRequest, cancelTicket, receiveFuel, removeToast: (id) => setToasts((items) => items.filter((item) => item.id !== id)), notify }
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
 }
 

@@ -55,6 +55,59 @@ export async function ticketQr(id: string): Promise<Blob> {
   return response.blob()
 }
 
+export type DeliveryChannel = 'CORREO' | 'SMS' | 'AMBOS'
+export type TicketDeliveryRow = { id: number; ticketId: string; canal: 'CORREO' | 'SMS'; destino: string; estadoEnvio: 'PENDIENTE' | 'ENVIADO' | 'FALLIDO'; detalleError: string | null; fechaEnvio: string | null; solicitadoEn: string; intento: number; proveedor: string | null; resultado: string | null; loteId: string }
+export type TicketDeliveryOutcome = { ticketId: string; numeroTicket: string; estadoTicket: string; duplicadoIdempotente: boolean; envios: { canal: string; estado: string; destinoEnmascarado: string; error: string | null }[] }
+
+export async function sendTicket(id: string, canal: DeliveryChannel, idempotencyKey = crypto.randomUUID()): Promise<TicketDeliveryOutcome> {
+  return request<TicketDeliveryOutcome>(`/tickets/${encodeURIComponent(id)}/enviar`, { method: 'POST', body: JSON.stringify({ canal, idempotencyKey }) })
+}
+
+export async function retryTicketDelivery(id: string, canal: Exclude<DeliveryChannel, 'AMBOS'>, idempotencyKey = crypto.randomUUID()): Promise<TicketDeliveryOutcome> {
+  return request<TicketDeliveryOutcome>(`/tickets/${encodeURIComponent(id)}/reenviar`, { method: 'POST', body: JSON.stringify({ canal, idempotencyKey }) })
+}
+
+export async function ticketDeliveryHistory(id: string): Promise<TicketDeliveryRow[]> {
+  return request<TicketDeliveryRow[]>(`/tickets/${encodeURIComponent(id)}/envios`)
+}
+
+export async function reconcileTicketDelivery(ticketId: string, envioId: number, estado: 'ENVIADO' | 'FALLIDO'): Promise<TicketDeliveryOutcome> {
+  return request<TicketDeliveryOutcome>(`/tickets/${encodeURIComponent(ticketId)}/envios/${encodeURIComponent(envioId)}/reconciliar`, {
+    method: 'POST', body: JSON.stringify({ estado }),
+  })
+}
+
+export type CierreTankSummary = {
+  tanqueId: number; codigo: string; nombre: string; capacidadGalones: number
+  inventarioInicialGalones: number; entradasGalones: number; despachadoGalones: number
+  otrasSalidasGalones: number; mermasGalones: number; ajustesGalones: number
+  inventarioTeoricoFinalGalones: number
+}
+export type CierreSummary = {
+  estacionId: number; estacion: string; fecha: string; inventarioInicialGalones: number
+  volumenRecibidoGalones: number; volumenDespachadoGalones: number; otrasSalidasGalones: number
+  mermasGalones: number; ajustesGalones: number; inventarioTeoricoFinalGalones: number
+  cantidadDespachos: number; tanques: CierreTankSummary[]
+}
+export type CierreRow = {
+  cierre: { id: number; estacionId: number; fecha: string; inventarioInicialGalones: number; volumenRecibidoGalones: number; volumenDespachadoGalones: number; inventarioFinalGalones: number; inventarioFisicoGalones: number; diferenciaGalones: number; cantidadDespachos: number; usuarioCierreId: number; cerradoEn: string; estado: string }
+  estacion: string
+}
+
+export async function downloadCierrePdf(id: number): Promise<Blob> {
+  const session = savedSession()
+  const response = await fetch(`${baseUrl}/cierres-diarios/${encodeURIComponent(id)}/pdf`, {
+    headers: session ? { Authorization: `Bearer ${session.token}` } : {},
+  })
+  if (!response.ok) {
+    const body = await response.text()
+    let message = body || `Error ${response.status}`
+    try { const parsed = JSON.parse(body); message = parsed.mensaje || parsed.title || parsed.detail || body } catch { /* API plain-text error. */ }
+    throw new Error(message)
+  }
+  return response.blob()
+}
+
 export async function loadLiveData() {
   const [departmentsRaw, employeesRaw, vehiclesRaw, fuelsRaw, tanksRaw, stationsRaw, suppliersRaw, requestsRaw, ticketsRaw, movementsRaw] = await Promise.all([
     request<unknown>('/catalogos/departamentos'),
@@ -113,5 +166,16 @@ export const api = {
   approveRequest: (id: number, body: unknown) => request<unknown>(`/solicitudes/${id}/aprobar`, { method: 'PUT', body: JSON.stringify(body) }),
   rejectRequest: (id: number) => request<unknown>(`/solicitudes/${id}/rechazar`, { method: 'PUT' }),
   createTicket: (requestId: number, issuerId: number) => request<unknown>('/tickets', { method: 'POST', body: JSON.stringify({ solicitudId: requestId, usuarioEmisorId: issuerId }) }),
+  cancelTicket: (id: string, motivo: string) => request<unknown>(`/tickets/${encodeURIComponent(id)}/anular`, { method: 'POST', body: JSON.stringify({ motivo }) }),
+  closeSummary: (stationId: number, date: string) => request<{ resumen: CierreSummary; cerrado: boolean; cierre: (CierreRow['cierre'] & { detalleTanques: { tanqueId: number; inventarioFisicoGalones: number }[] }) | null }>(`/cierres-diarios/resumen?estacionId=${stationId}&fecha=${encodeURIComponent(date)}`),
+  createDailyClose: (body: { estacionId: number; fecha: string; inventariosFisicos: { tanqueId: number; inventarioFisicoGalones: number | null }[]; observaciones?: string }) => request<CierreRow['cierre']>('/cierres-diarios', { method: 'POST', body: JSON.stringify(body) }),
+  dailyCloses: (filters: { desde?: string; hasta?: string; estacionId?: number; usuarioId?: number } = {}) => {
+    const params = new URLSearchParams()
+    if (filters.desde) params.set('desde', filters.desde)
+    if (filters.hasta) params.set('hasta', filters.hasta)
+    if (filters.estacionId) params.set('estacionId', String(filters.estacionId))
+    if (filters.usuarioId) params.set('usuarioId', String(filters.usuarioId))
+    return request<CierreRow[]>(`/cierres-diarios${params.size ? `?${params}` : ''}`)
+  },
   receive: (body: unknown) => request<unknown>('/recepciones', { method: 'POST', body: JSON.stringify(body) }),
 }

@@ -8,11 +8,12 @@ import { Inventory } from './pages/Inventory'
 import { Operations } from './pages/Operations'
 import { Catalogs } from './pages/Catalogs'
 import { Reports } from './pages/Reports'
+import { Closings } from './pages/Closings'
 import { Admin } from './pages/Admin'
 import { Login } from './pages/Login'
 import { useApp } from './context/AppContext'
 
-const pages: PageKey[] = ['dashboard', 'solicitudes', 'tickets', 'despacho', 'inventario', 'operaciones', 'catalogos', 'reportes', 'administracion']
+const pages: PageKey[] = ['dashboard', 'solicitudes', 'tickets', 'despacho', 'inventario', 'operaciones', 'cierres', 'reportes', 'catalogos', 'administracion']
 
 export default function App() {
   const { session, loading, error, refresh, logout } = useApp()
@@ -34,6 +35,7 @@ export default function App() {
     despacho: <Dispatch />,
     inventario: <Inventory />,
     operaciones: <Operations />,
+    cierres: <Closings />,
     catalogos: <Catalogs />,
     reportes: <Reports />,
     administracion: <Admin />,
