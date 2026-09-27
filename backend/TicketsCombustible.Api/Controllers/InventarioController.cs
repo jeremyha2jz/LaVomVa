@@ -23,10 +23,10 @@ public class InventarioController(TicketsCombustibleDbContext db) : ControllerBa
     [HttpPost("ajustes")]
     public async Task<IActionResult> Ajustar(AjusteInventarioRequest request)
     {
-        if (request.CantidadGalones <= 0) return BadRequest("La cantidad debe ser mayor que cero.");
-        if (request.Tipo is not ("AJUSTE_POSITIVO" or "AJUSTE_NEGATIVO" or "MERMA")) return BadRequest("Tipo permitido: AJUSTE_POSITIVO, AJUSTE_NEGATIVO o MERMA.");
-        if (!await db.Tanques.AnyAsync(x => x.Id == request.TanqueId && x.Activo)) return NotFound("Tanque no encontrado o inactivo.");
-        if (!await db.Usuarios.AnyAsync(x => x.Id == request.UsuarioId && x.Activo)) return BadRequest("Usuario inválido.");
+        if (request.CantidadGalones <= 0) return BadRequest(new ApiErrorResponse("La cantidad debe ser mayor que cero."));
+        if (request.Tipo is not ("AJUSTE_POSITIVO" or "AJUSTE_NEGATIVO" or "MERMA")) return BadRequest(new ApiErrorResponse("Tipo permitido: AJUSTE_POSITIVO, AJUSTE_NEGATIVO o MERMA."));
+        if (!await db.Tanques.AnyAsync(x => x.Id == request.TanqueId && x.Activo)) return NotFound(new ApiErrorResponse("Tanque no encontrado o inactivo."));
+        if (!await db.Usuarios.AnyAsync(x => x.Id == request.UsuarioId && x.Activo)) return BadRequest(new ApiErrorResponse("Usuario inválido."));
         var movimiento = new MovimientoInventario { TanqueId = request.TanqueId, TipoMovimiento = request.Tipo, CantidadGalones = request.CantidadGalones, ReferenciaTipo = "AJUSTE_MANUAL", Motivo = request.Motivo, UsuarioId = request.UsuarioId, FechaHora = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified) };
         db.MovimientosInventario.Add(movimiento); await db.SaveChangesAsync(); await db.Entry(movimiento).ReloadAsync();
         return Created($"api/inventario/movimientos/{movimiento.Id}", movimiento);

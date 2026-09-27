@@ -24,13 +24,13 @@ public class TicketsController(TicketsCombustibleDbContext db, IConfiguration co
         select new { ticket.Id, ticket.NumeroSecuencial, ticket.Estado, Empleado = empleado.NombreCompleto, Vehiculo = vehiculo.Placa, Departamento = departamento.Nombre, TipoCombustible = combustible.Nombre, ticket.CantidadAutorizadaGalones, ticket.FechaCreacion, ticket.FechaVencimiento }
     ).ToListAsync());
 
-    [HttpGet("{id:guid}")] public async Task<IActionResult> Obtener(Guid id) => await db.Tickets.Where(x => x.Id == id).Select(x => new { x.Id, x.NumeroSecuencial, x.Estado, x.EmpleadoId, x.VehiculoId, x.DepartamentoId, x.TipoCombustibleId, x.CantidadAutorizadaGalones, x.FechaCreacion, x.FechaVencimiento }).SingleOrDefaultAsync() is { } ticket ? Ok(ticket) : NotFound();
+    [HttpGet("{id:guid}")] public async Task<IActionResult> Obtener(Guid id) => await db.Tickets.Where(x => x.Id == id).Select(x => new { x.Id, x.NumeroSecuencial, x.Estado, x.EmpleadoId, x.VehiculoId, x.DepartamentoId, x.TipoCombustibleId, x.CantidadAutorizadaGalones, x.FechaCreacion, x.FechaVencimiento }).SingleOrDefaultAsync() is { } ticket ? Ok(ticket) : NotFound(new ApiErrorResponse("Ticket no encontrado."));
 
     [HttpGet("{id:guid}/qr")]
     public async Task<IActionResult> ObtenerQr(Guid id)
     {
         var ticket = await db.Tickets.FindAsync(id);
-        if (ticket is null) return NotFound("Ticket no encontrado.");
+        if (ticket is null) return NotFound(new ApiErrorResponse("Ticket no encontrado."));
         using var generador = new QRCodeGenerator();
         using var datos = generador.CreateQrCode(ticket.QrToken, QRCodeGenerator.ECCLevel.Q);
         var png = new PngByteQRCode(datos).GetGraphic(12);
@@ -41,12 +41,12 @@ public class TicketsController(TicketsCombustibleDbContext db, IConfiguration co
     public async Task<IActionResult> Crear(CrearTicketRequest request)
     {
         var solicitud = await db.Solicitudes.FindAsync(request.SolicitudId);
-        if (solicitud is null) return NotFound("Solicitud no encontrada.");
-        if (solicitud.Estado != EstadoSolicitud.APROBADA || solicitud.CantidadAutorizadaGalones is null || solicitud.FechaVencimiento is null) return Conflict("La solicitud debe estar aprobada y completa.");
-        if (await db.Tickets.AnyAsync(x => x.SolicitudId == solicitud.Id)) return Conflict("La solicitud ya tiene un ticket.");
+        if (solicitud is null) return NotFound(new ApiErrorResponse("Solicitud no encontrada."));
+        if (solicitud.Estado != EstadoSolicitud.APROBADA || solicitud.CantidadAutorizadaGalones is null || solicitud.FechaVencimiento is null) return Conflict(new ApiErrorResponse("La solicitud debe estar aprobada y completa."));
+        if (await db.Tickets.AnyAsync(x => x.SolicitudId == solicitud.Id)) return Conflict(new ApiErrorResponse("La solicitud ya tiene un ticket."));
         var id = Guid.NewGuid(); var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
         var secret = configuration["Qr:SigningSecret"];
-        if (string.IsNullOrWhiteSpace(secret) || secret.Length < 32) return Problem("Configura Qr:SigningSecret con al menos 32 caracteres antes de emitir tickets.");
+        if (string.IsNullOrWhiteSpace(secret) || secret.Length < 32) return StatusCode(StatusCodes.Status500InternalServerError, new ApiErrorResponse("Configura Qr:SigningSecret con al menos 32 caracteres antes de emitir tickets."));
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{id}|{solicitud.Id}|{token}|{secret}"))).ToLowerInvariant();
         var ticket = new Ticket { Id = id, SolicitudId = solicitud.Id, EmpleadoId = solicitud.EmpleadoId, VehiculoId = solicitud.VehiculoId, DepartamentoId = solicitud.DepartamentoId, TipoCombustibleId = solicitud.TipoCombustibleId, CantidadAutorizadaGalones = solicitud.CantidadAutorizadaGalones.Value, FechaVencimiento = solicitud.FechaVencimiento.Value, Estado = EstadoTicket.CREADO, QrToken = token, QrHash = hash };
         db.Tickets.Add(ticket); await db.SaveChangesAsync(); await db.Entry(ticket).ReloadAsync();
@@ -59,7 +59,7 @@ public class TicketsController(TicketsCombustibleDbContext db, IConfiguration co
         var ticket = await db.Tickets.SingleOrDefaultAsync(x => x.QrToken == request.QrData);
         if (ticket is null) return Ok(new { valido = false, estado = "Anulado", ticket = (object?)null, mensajeError = "El ticket no existe o el QR es inválido" });
         var secret = configuration["Qr:SigningSecret"];
-        if (string.IsNullOrWhiteSpace(secret) || secret.Length < 32) return Problem("Falta configurar el secreto QR.");
+        if (string.IsNullOrWhiteSpace(secret) || secret.Length < 32) return StatusCode(StatusCodes.Status500InternalServerError, new ApiErrorResponse("Falta configurar el secreto QR."));
         var expectedHash = SHA256.HashData(Encoding.UTF8.GetBytes($"{ticket.Id}|{ticket.SolicitudId}|{ticket.QrToken}|{secret}"));
         if (!CryptographicOperations.FixedTimeEquals(expectedHash, Convert.FromHexString(ticket.QrHash))) return Ok(new { valido = false, estado = "Anulado", ticket = (object?)null, mensajeError = "La firma del QR es inválida" });
         var estado = ticket.FechaVencimiento <= DateTime.UtcNow && ticket.Estado is not EstadoTicket.CONSUMIDO and not EstadoTicket.ANULADO ? EstadoTicket.VENCIDO : ticket.Estado;

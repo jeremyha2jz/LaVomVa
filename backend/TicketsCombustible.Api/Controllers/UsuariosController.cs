@@ -16,9 +16,9 @@ public class UsuariosController(TicketsCombustibleDbContext db) : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Crear(CrearUsuarioRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request.Password) || request.Password.Length < 8) return BadRequest("La contraseña debe tener al menos 8 caracteres.");
-        if (await db.Usuarios.AnyAsync(x => x.NombreUsuario == request.NombreUsuario || x.Correo == request.Correo)) return Conflict("El usuario o correo ya existe.");
-        if (!await db.Roles.AnyAsync(x => x.Id == request.RolId && x.Activo)) return BadRequest("El rol indicado no existe o está inactivo.");
+        if (string.IsNullOrWhiteSpace(request.Password) || request.Password.Length < 8) return BadRequest(new ApiErrorResponse("La contraseña debe tener al menos 8 caracteres."));
+        if (await db.Usuarios.AnyAsync(x => x.NombreUsuario == request.NombreUsuario || x.Correo == request.Correo)) return Conflict(new ApiErrorResponse("El usuario o correo ya existe."));
+        if (!await db.Roles.AnyAsync(x => x.Id == request.RolId && x.Activo)) return BadRequest(new ApiErrorResponse("El rol indicado no existe o está inactivo."));
 
         var usuario = new Usuario { NombreUsuario = request.NombreUsuario, Correo = request.Correo, NombreCompleto = request.NombreCompleto, Telefono = request.Telefono, PasswordHash = CrearHash(request.Password) };
         db.Usuarios.Add(usuario);
