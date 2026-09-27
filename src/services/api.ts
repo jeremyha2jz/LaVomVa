@@ -77,6 +77,18 @@ export async function reconcileTicketDelivery(ticketId: string, envioId: number,
   })
 }
 
+export type AppNotification = {
+  id: number; tipo: 'TICKET_PROXIMO_A_VENCER' | 'TICKET_VENCIDO' | 'INVENTARIO_BAJO' | 'FALLO_INTEGRACION' | 'AJUSTE_INVENTARIO' | string
+  titulo: string; mensaje: string; severidad: 'INFO' | 'AVISO' | 'CRITICA'; usuarioId: number
+  referenciaTipo: string | null; referenciaId: string | null; fechaCreacion: string; fechaLectura: string | null; leida: boolean
+  metadata: Record<string, unknown>
+}
+export type NotificationPage = { pagina: number; tamano: number; total: number; items: AppNotification[] }
+export const listNotifications = (pagina = 1, tamano = 30) => request<NotificationPage>(`/notificaciones?pagina=${pagina}&tamano=${tamano}`)
+export const unreadNotificationCount = () => request<{ cantidad: number }>('/notificaciones/no-leidas')
+export const markNotificationRead = (id: number) => request<{ id: number; leida: boolean; fechaLectura: string }>(`/notificaciones/${id}/leer`, { method: 'POST' })
+export const markAllNotificationsRead = () => request<{ actualizadas: number }>('/notificaciones/leer-todas', { method: 'POST' })
+
 export type ScheduleType = 'AUTOMATICA' | 'RECURRENTE'
 export type ScheduleFrequency = 'DIARIA' | 'SEMANAL' | 'MENSUAL'
 export type ProgrammedRequest = {

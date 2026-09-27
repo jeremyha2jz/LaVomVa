@@ -21,9 +21,9 @@ public sealed class SolicitudProgramacionWorker(
 
     private async Task ProcessOnceAsync(CancellationToken cancellationToken)
     {
+        await using var scope = scopeFactory.CreateAsyncScope();
         try
         {
-            await using var scope = scopeFactory.CreateAsyncScope();
             var processor = scope.ServiceProvider.GetRequiredService<ISolicitudProgramacionProcessor>();
             var processed = await processor.ProcessDueAsync(cancellationToken);
             if (processed > 0) logger.LogInformation("Scheduler procesó {Count} programaciones vencidas.", processed);
@@ -33,6 +33,17 @@ public sealed class SolicitudProgramacionWorker(
         {
             // Leave failed transactions due for the next tick; the processor rolls them back atomically.
             logger.LogError(exception, "No se pudo procesar el lote de solicitudes programadas.");
+        }
+        try
+        {
+            var ticketNotifications = scope.ServiceProvider.GetRequiredService<TicketNotificationProcessor>();
+            var processed = await ticketNotifications.ProcessDueAsync(cancellationToken);
+            if (processed > 0) logger.LogInformation("Evaluó {Count} tickets para notificaciones de vencimiento.", processed);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "No se pudieron evaluar las notificaciones de vencimiento de tickets.");
         }
     }
 }

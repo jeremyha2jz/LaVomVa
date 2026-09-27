@@ -80,6 +80,14 @@ public sealed class ApiCoverageTests(QaFixture qa)
     }
 
     [Theory]
+    [InlineData("ADMINISTRADOR", "api/notificaciones", "GET", 200)]
+    [InlineData("SUPERVISOR", "api/notificaciones", "GET", 200)]
+    [InlineData("DESPACHADOR", "api/notificaciones", "GET", 200)]
+    [InlineData("AUDITOR", "api/notificaciones", "GET", 200)]
+    [InlineData("CONSULTA", "api/notificaciones", "GET", 403)]
+    [InlineData("SOLICITANTE", "api/notificaciones", "GET", 403)]
+    [InlineData("ADMINISTRADOR", "api/notificaciones/no-leidas", "GET", 200)]
+    [InlineData("CONSULTA", "api/notificaciones/no-leidas", "GET", 403)]
     [InlineData("ADMINISTRADOR", "api/tickets/qr", "GET", 200)]
     [InlineData("SUPERVISOR", "api/tickets/qr", "GET", 200)]
     [InlineData("DESPACHADOR", "api/tickets/qr", "GET", 403)]
@@ -1404,6 +1412,7 @@ public sealed class ApiCoverageTests(QaFixture qa)
         if (safeFailure.Contains("private-test-secret", StringComparison.Ordinal)) Assert.Contains("[redactado]", storedError);
         else Assert.Equal(safeFailure, storedError);
         Assert.Equal(1, await db.Auditoria.CountAsync(x => x.Accion == (uncertain ? "TICKET_ENVIO_INCIERTO" : "TICKET_ENVIO_FALLIDO")));
+        Assert.Equal(uncertain ? 0 : 1, await db.Notificaciones.CountAsync(x => x.Tipo == "FALLO_INTEGRACION"));
     }
 
     [Fact]
@@ -1997,6 +2006,168 @@ public sealed class ApiCoverageTests(QaFixture qa)
 
     private static object Usuario(string username, string email, string name, string password, long roleId) => new { nombreUsuario = username, correo = email, nombreCompleto = name, password, telefono = "8095550100", rolId = roleId };
     private static object Empleado(string code, string name, string document, long departmentId) => new { codigoEmpleado = code, nombreCompleto = name, cedula = document, departamentoId = departmentId, correo = "qa.employee@example.test", cargo = "QA", telefonoMovil = "8095550100", activo = true };
+
+    [Fact]
+    public async Task Notificaciones_persisten_son_idempotentes_aisladas_y_leibles()
+    {
+        await qa.ResetAsync();
+        var admin = await LoginAsync("qa.notifications.admin", "ADMINISTRADOR");
+        var supervisor = await LoginAsync("qa.notifications.supervisor", "SUPERVISOR");
+        var key = $"test:event:{Guid.NewGuid():N}";
+        async Task CreateAsync()
+        {
+            await using var scope = qa.Factory.Services.CreateAsyncScope();
+            var service = scope.ServiceProvider.GetRequiredService<NotificacionService>();
+            await service.CrearParaRolesAsync(["ADMINISTRADOR", "SUPERVISOR"], "AJUSTE_INVENTARIO", "Ajuste QA", "Aviso QA", "AVISO", "MOVIMIENTO_INVENTARIO", "44", key, new { movementId = 44 });
+        }
+        await Task.WhenAll(CreateAsync(), CreateAsync());
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+            Assert.Equal(2, await db.Notificaciones.CountAsync(x => x.ClaveDeduplicacion == key));
+        }
+
+        Client.DefaultRequestHeaders.Authorization = null;
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Client.GetAsync("api/notificaciones")).StatusCode);
+        Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "token-invalid");
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Client.GetAsync("api/notificaciones")).StatusCode);
+        var consulta = await LoginAsync("qa.notifications.consulta", "CONSULTA");
+        Assert.Equal(HttpStatusCode.Forbidden, (await Client.GetAsync("api/notificaciones")).StatusCode);
+        Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", admin.Token);
+        var listed = await Client.GetFromJsonAsync<JsonElement>("api/notificaciones?tipo=AJUSTE_INVENTARIO&leida=false");
+        Assert.Equal(1, listed.GetProperty("total").GetInt32());
+        var noticeId = listed.GetProperty("items")[0].GetProperty("id").GetInt64();
+        Assert.Equal(1, (await Client.GetFromJsonAsync<JsonElement>("api/notificaciones/no-leidas")).GetProperty("cantidad").GetInt32());
+        Assert.Equal(HttpStatusCode.OK, (await Client.PostAsync($"api/notificaciones/{noticeId}/leer", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await Client.PostAsync($"api/notificaciones/{noticeId}/leer", null)).StatusCode);
+        Assert.Equal(0, (await Client.GetFromJsonAsync<JsonElement>("api/notificaciones/no-leidas")).GetProperty("cantidad").GetInt32());
+
+        Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", supervisor.Token);
+        Assert.Equal(HttpStatusCode.NotFound, (await Client.PostAsync($"api/notificaciones/{noticeId}/leer", null)).StatusCode);
+        Assert.Equal(1, (await Client.GetFromJsonAsync<JsonElement>("api/notificaciones/no-leidas")).GetProperty("cantidad").GetInt32());
+        Assert.Equal(HttpStatusCode.OK, (await Client.PostAsync("api/notificaciones/leer-todas", null)).StatusCode);
+        Assert.Equal(0, (await Client.GetFromJsonAsync<JsonElement>("api/notificaciones/no-leidas")).GetProperty("cantidad").GetInt32());
+        Client.DefaultRequestHeaders.Authorization = null;
+        _ = consulta;
+    }
+
+    [Fact]
+    public async Task Worker_de_tickets_reutiliza_umbral_omite_terminales_y_deduplica_en_concurrencia()
+    {
+        await qa.ResetAsync();
+        var admin = await LoginAsync("qa.notifications.ticket.admin", "ADMINISTRADOR");
+        var catalog = await SeedCatalogAsync(stock: 20m);
+        var near = await IssueTicketAsync(catalog, 4m);
+        var expired = await IssueTicketAsync(catalog, 3m);
+        var cancelled = await IssueTicketAsync(catalog, 2m);
+        var consumed = await IssueTicketAsync(catalog, 1m);
+        _ = await LoginAsync("qa.notifications.ticket.supervisor", "SUPERVISOR");
+        _ = await LoginAsync("qa.notifications.ticket.dispatcher", "DESPACHADOR");
+        Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", admin.Token);
+        var qrValidation = await Client.PostAsJsonAsync("api/tickets/validar", new { qrData = consumed.Token });
+        Assert.Equal(HttpStatusCode.OK, qrValidation.StatusCode);
+        var dispatch = await Client.PostAsJsonAsync("api/despachos", new { ticketId = consumed.Id.ToString(), galonesServidos = 1m, tanqueId = catalog.TankId, identidadConfirmada = true });
+        Assert.Equal(HttpStatusCode.OK, dispatch.StatusCode);
+        var now = DateTime.UtcNow.AddMinutes(-1);
+        var nearExpiry = DateTime.SpecifyKind(now.Add(TicketLifecycleService.ProximoAVencerThreshold), DateTimeKind.Unspecified);
+        var expiredAt = DateTime.SpecifyKind(now.Add(TicketLifecycleService.ProximoAVencerThreshold).AddMinutes(10), DateTimeKind.Unspecified);
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+            foreach (var (id, expiry) in new[] { (near.Id, nearExpiry), (expired.Id, expiredAt), (cancelled.Id, expiredAt), (consumed.Id, expiredAt) })
+                await db.Tickets.Where(x => x.Id == id).ExecuteUpdateAsync(set => set.SetProperty(x => x.FechaVencimiento, expiry));
+        }
+        Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", admin.Token);
+        Assert.Equal(HttpStatusCode.OK, (await Client.PostAsJsonAsync($"api/tickets/{cancelled.Id}/anular", new { motivo = "No requerido" })).StatusCode);
+
+        async Task<int> ProcessAsync()
+        {
+            await using var scope = qa.Factory.Services.CreateAsyncScope();
+            return await scope.ServiceProvider.GetRequiredService<TicketNotificationProcessor>().ProcessDueAsync();
+        }
+        qa.Factory.Clock.SetUtcNow(new DateTimeOffset(now.AddSeconds(-1), TimeSpan.Zero));
+        await ProcessAsync();
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+            Assert.Equal(0, await scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>().Notificaciones.CountAsync());
+
+        qa.Factory.Clock.SetUtcNow(new DateTimeOffset(now, TimeSpan.Zero));
+        await Task.WhenAll(ProcessAsync(), ProcessAsync());
+        qa.Factory.Clock.SetUtcNow(new DateTimeOffset(expiredAt, TimeSpan.Zero));
+        await Task.WhenAll(ProcessAsync(), ProcessAsync());
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+            Assert.Equal(3, await db.Notificaciones.CountAsync(x => x.Tipo == "TICKET_PROXIMO_A_VENCER"));
+            Assert.Equal(6, await db.Notificaciones.CountAsync(x => x.Tipo == "TICKET_VENCIDO"));
+            Assert.DoesNotContain(await db.Notificaciones.Select(x => x.ReferenciaId).ToListAsync(), id => id == cancelled.Id.ToString("D"));
+            Assert.DoesNotContain(await db.Notificaciones.Select(x => x.ReferenciaId).ToListAsync(), id => id == consumed.Id.ToString("D"));
+        }
+        Client.DefaultRequestHeaders.Authorization = null;
+    }
+
+    [Fact]
+    public async Task Inventario_bajo_crea_un_aviso_por_episodio_y_los_ajustes_se_enlazan_al_movimiento()
+    {
+        await qa.ResetAsync();
+        var admin = await LoginAsync("qa.notifications.stock.admin", "ADMINISTRADOR");
+        var catalog = await SeedCatalogAsync(stock: 10m);
+        async Task<HttpResponseMessage> Adjust(string type, decimal gallons) => await Client.PostAsJsonAsync("api/inventario/ajustes", new { tanqueId = catalog.TankId, tipo = type, cantidadGalones = gallons, motivo = "QA notificaciones", usuarioId = admin.Id });
+        Assert.Equal(HttpStatusCode.Created, (await Adjust("AJUSTE_NEGATIVO", 6m)).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await Adjust("MERMA", 0.5m)).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await Adjust("AJUSTE_POSITIVO", 2m)).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await Adjust("AJUSTE_NEGATIVO", 2m)).StatusCode);
+        await using var scope = qa.Factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+        var notices = await db.Notificaciones.Where(x => x.UsuarioId == admin.Id).ToListAsync();
+        Assert.Equal(2, notices.Count(x => x.Tipo == "INVENTARIO_BAJO"));
+        var adjustments = notices.Where(x => x.Tipo == "AJUSTE_INVENTARIO").ToList();
+        Assert.Equal(4, adjustments.Count);
+        Assert.All(adjustments, row => Assert.StartsWith("movimiento:", row.ClaveDeduplicacion));
+        Assert.Equal(4, await db.MovimientosInventario.CountAsync(x => x.ReferenciaTipo == "AJUSTE_MANUAL"));
+        var supervisor = await LoginAsync("qa.notifications.stock.supervisor", "SUPERVISOR");
+        using var adminClient = AuthenticatedClient(admin.Token);
+        using var supervisorClient = AuthenticatedClient(supervisor.Token);
+        Assert.Equal(HttpStatusCode.Created, (await adminClient.PostAsJsonAsync("api/inventario/ajustes", new { tanqueId = catalog.TankId, tipo = "AJUSTE_POSITIVO", cantidadGalones = 10m, motivo = "Recuperación QA", usuarioId = admin.Id })).StatusCode);
+        var first = adminClient.PostAsJsonAsync("api/inventario/ajustes", new { tanqueId = catalog.TankId, tipo = "AJUSTE_NEGATIVO", cantidadGalones = 5m, motivo = "Carrera QA", usuarioId = admin.Id });
+        var second = supervisorClient.PostAsJsonAsync("api/inventario/ajustes", new { tanqueId = catalog.TankId, tipo = "AJUSTE_NEGATIVO", cantidadGalones = 5m, motivo = "Carrera QA", usuarioId = supervisor.Id });
+        var outcomes = await Task.WhenAll(first, second);
+        Assert.All(outcomes, result => Assert.Equal(HttpStatusCode.Created, result.StatusCode));
+        Assert.Equal(3, await db.Notificaciones.CountAsync(x => x.UsuarioId == admin.Id && x.Tipo == "INVENTARIO_BAJO"));
+        Client.DefaultRequestHeaders.Authorization = null;
+    }
+
+    [Fact]
+    public async Task Fallo_de_auditoria_revierte_ajuste_y_notificaciones_asociadas()
+    {
+        await qa.ResetAsync();
+        var admin = await LoginAsync("qa.notifications.rollback", "ADMINISTRADOR");
+        var catalog = await SeedCatalogAsync(stock: 10m);
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+            await db.Database.ExecuteSqlRawAsync("""
+                CREATE OR REPLACE FUNCTION qa_rechazar_auditoria_ajuste() RETURNS TRIGGER AS $$
+                BEGIN IF NEW.accion = 'INVENTORY_ADJUSTED' THEN RAISE EXCEPTION 'QA adjustment audit failure'; END IF; RETURN NEW; END;
+                $$ LANGUAGE plpgsql;
+                CREATE TRIGGER qa_rechazar_auditoria_ajuste BEFORE INSERT ON auditoria FOR EACH ROW EXECUTE FUNCTION qa_rechazar_auditoria_ajuste();
+                """);
+        }
+        try
+        {
+            await Assert.ThrowsAsync<DbUpdateException>(() => Client.PostAsJsonAsync("api/inventario/ajustes", new { tanqueId = catalog.TankId, tipo = "AJUSTE_NEGATIVO", cantidadGalones = 6m, motivo = "Rollback QA", usuarioId = admin.Id }));
+            await using var verify = qa.Factory.Services.CreateAsyncScope();
+            var db = verify.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+            Assert.Equal(10m, await db.Tanques.Where(x => x.Id == catalog.TankId).Select(x => x.ExistenciaActualGalones).SingleAsync());
+            Assert.Equal(0, await db.MovimientosInventario.CountAsync());
+            Assert.Equal(0, await db.Notificaciones.CountAsync());
+        }
+        finally
+        {
+            await using var scope = qa.Factory.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+            await db.Database.ExecuteSqlRawAsync("DROP TRIGGER IF EXISTS qa_rechazar_auditoria_ajuste ON auditoria; DROP FUNCTION IF EXISTS qa_rechazar_auditoria_ajuste();");
+        }
+    }
 
     private async Task<(long Id, string Token)> LoginAsync(string username, string role)
     {

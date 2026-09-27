@@ -21,6 +21,8 @@ builder.Services.AddScoped<ISolicitudProgramacionProcessor>(services => services
 if (!builder.Environment.IsEnvironment("Testing")) builder.Services.AddHostedService<SolicitudProgramacionWorker>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<TicketLifecycleService>();
+builder.Services.AddScoped<NotificacionService>();
+builder.Services.AddScoped<TicketNotificationProcessor>();
 builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
 builder.Services.AddHttpClient<ISmsSender, HttpSmsSender>();
 builder.Services.AddScoped<TicketDeliveryService>();

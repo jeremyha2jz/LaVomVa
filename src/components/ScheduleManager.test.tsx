@@ -15,7 +15,7 @@ vi.mock('../services/api', async (importOriginal) => ({
   programmedRequestHistory: apiMocks.history,
 }))
 
-afterEach(cleanup)
+afterEach(() => { cleanup(); vi.restoreAllMocks() })
 beforeEach(() => {
   apiMocks.list.mockReset().mockResolvedValue([])
   apiMocks.create.mockReset().mockResolvedValue({ id: 1 })
@@ -37,8 +37,9 @@ beforeEach(() => {
 
 describe('gestión de programaciones de solicitudes', () => {
   it('crea una recurrente con frecuencia y referencias seleccionadas', async () => {
-    const beforeOpen = Date.now()
+    vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2026, 8, 27, 12, 0, 0))
     render(<ScheduleManager />)
+    const beforeOpen = Date.now()
     fireEvent.click(await screen.findByRole('button', { name: 'Nueva programación' }))
     const suggestedStart = new Date((screen.getByLabelText('Fecha y hora inicial (hora local; se guarda en UTC)') as HTMLInputElement).value).getTime()
     expect(suggestedStart).toBeGreaterThanOrEqual(beforeOpen + 50_000)

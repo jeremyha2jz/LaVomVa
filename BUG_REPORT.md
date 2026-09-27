@@ -186,3 +186,21 @@ La primera validación de RF-11 terminó en 212/212. La corrida final, tras incl
 - **Corrección:** bloquear reactivación solo si ya existe ejecución `GENERADA`; programar los reintentos de ejecuciones fallidas para un instante distinto, conservando la clave única y el historial.
 - **Regression test:** `ApiCoverageTests.Programacion_automatica_fallida_se_puede_reactivar_tras_corregir_referencia`.
 - **Estado:** Corregido y verificado en `pnpm test:all` (213/213, 0 omitidos).
+
+## Continuación RF-23 — notificaciones
+
+Durante RF-23 se revisaron los fallos definitivos de entrega, las transacciones que modifican stock, la deduplicación concurrente y el aislamiento por usuario. Se encontró y corrigió el defecto de fecha temporal documentado como BUG-13. La falla inicial de la prueba de fecha sugerida fue una medición sensible a segundos reales en un campo que solo guarda minutos; se fijó el reloj del test conservando el rango y los asserts. Los resultados finales quedan en `TEST_REPORT.md`.
+
+## BUG-13
+
+- **Severidad:** HIGH
+- **Requisito:** RF-23, RF-09, RF-14
+- **Componente:** API, persistencia de notificaciones en PostgreSQL
+- **Descripción:** crear una notificación desde un resultado definitivo de entrega o un cambio de inventario fallaba por incompatibilidad de tipo temporal, devolviendo una excepción y revirtiendo la operación transaccional.
+- **Reproducción:** ejecutar un ajuste que cruce el nivel crítico o registrar un resultado FALLIDO definitivo de correo/SMS con destinatario ADMINISTRADOR/SUPERVISOR.
+- **Resultado esperado:** guardar operación de negocio, auditoría y notificación atómicamente con fecha UTC.
+- **Resultado obtenido:** Npgsql rechazaba un `DateTimeKind.Unspecified` enviado como `timestamp with time zone`, aunque `fecha_creacion` es `timestamp without time zone`.
+- **Causa:** el insert SQL interpolado no convertía explícitamente el instante UTC al tipo temporal almacenado por el esquema.
+- **Corrección:** pasar un instante UTC y convertirlo con `timezone('UTC', ...)` al insertar el timestamp sin zona; la notificación comparte la transacción de la operación.
+- **Regression test:** `ApiCoverageTests.Fallos_de_proveedor_se_persisten_sanitizados_sin_marcar_enviado`, `Inventario_bajo_crea_un_aviso_por_episodio_y_los_ajustes_se_enlazan_al_movimiento` y `Fallo_de_auditoria_revierte_ajuste_y_notificaciones_asociadas`.
+- **Estado:** Corregido; verificado en la suite integral RF-23.

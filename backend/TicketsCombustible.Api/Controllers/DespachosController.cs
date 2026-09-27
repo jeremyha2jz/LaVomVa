@@ -14,7 +14,7 @@ namespace TicketsCombustible.Api.Controllers;
 [ApiController]
 [Authorize(Roles = "ADMINISTRADOR,DESPACHADOR")]
 [Route("api/despachos")]
-public class DespachosController(TicketsCombustibleDbContext db, IMemoryCache cache, IAuditoriaService auditoria, TicketLifecycleService lifecycle) : ControllerBase
+public class DespachosController(TicketsCombustibleDbContext db, IMemoryCache cache, IAuditoriaService auditoria, TicketLifecycleService lifecycle, NotificacionService notifications) : ControllerBase
 {
     [HttpPost]
     public async Task<IActionResult> Registrar(RegistrarDespachoRequest request)
@@ -55,6 +55,7 @@ public class DespachosController(TicketsCombustibleDbContext db, IMemoryCache ca
         {
             await db.SaveChangesAsync();
             var stockAfter = await db.Tanques.AsNoTracking().Where(x => x.Id == tanque.Id).Select(x => x.ExistenciaActualGalones).SingleAsync();
+            await notifications.SincronizarEpisodioInventarioAsync(tanque.Id, stockAfter);
             await auditoria.RegistrarAsync("DISPATCH_RECORDED", "DESPACHO", despacho.Id.ToString(), "EXITO", ticketBefore,
                 new { despacho.TicketId, despacho.TanqueId, despacho.EstacionId, despacho.GalonesServidos, stockAfter, estado = "CONSUMIDO" });
             await transaction.CommitAsync();

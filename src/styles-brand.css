@@ -64,6 +64,14 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .icon-button:hover, .notifications-panel button:hover { background: #f2f2f2; }
 .notifications-panel { border-radius: 8px; box-shadow: 0 12px 32px #00000014; }
 .notification-button i { background: #c9081d; }
+.notification-button { position: relative; }
+.notification-badge { position: absolute; right: -4px; top: -4px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 9px; display: grid; place-items: center; background: #c9081d; color: #fff; font-size: 9px; line-height: 1; }
+.notification-item.unread { background: #fff8f6; }
+.notification-item.read { opacity: .72; }
+.notification-item small { line-height: 1.4; }
+.notifications-panel .notification-mark-all { justify-content: center; color: #a10c20; font-weight: 700; border-bottom: 1px solid #eee; border-radius: 0; }
+.notification-unread-dot { width: 7px; height: 7px; flex: 0 0 auto; background: #c9081d; border-radius: 50%; }
+.notification-error, .notification-empty { padding: 10px; color: #66736e; font-size: 10px; }
 
 .page-header h1 { color: #111; letter-spacing: -.035em; }
 .page-header p, .panel-header p { color: #666; }

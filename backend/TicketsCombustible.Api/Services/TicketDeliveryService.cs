@@ -26,7 +26,8 @@ public sealed class TicketDeliveryService(
     IAuditoriaService auditoria,
     TicketLifecycleService lifecycle,
     IConfiguration configuration,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    NotificacionService notifications)
 {
     public async Task<TicketDeliveryOutcome> SendAsync(Guid ticketId, string requestedChannel, Guid idempotencyKey, bool retryOnlyFailed, long actorId, string? signingSecret, CancellationToken cancellationToken)
     {
@@ -169,6 +170,11 @@ public sealed class TicketDeliveryService(
                 await auditoria.RegistrarAsync(auditAction, "TICKET", ticket.NumeroSecuencial, result.State == "ENVIADO" ? "EXITO" : "FALLO",
                     datosNuevos: new { canal = result.Row.Canal, intento = result.Row.Intento, destino = MaskDestination(result.Row.Destino), loteId = batchId, estadoEnvio = result.State },
                     detalle: result.SafeError, usuarioId: actorId, cancellationToken: CancellationToken.None);
+                if (result.State == "FALLIDO")
+                    await notifications.CrearParaRolesAsync(["ADMINISTRADOR", "SUPERVISOR"], "FALLO_INTEGRACION",
+                        "Falló la entrega de un ticket", $"El ticket {ticket.NumeroSecuencial} falló por el canal {result.Row.Canal} ({result.State}) a las {timeProvider.GetUtcNow():yyyy-MM-dd HH:mm} UTC.",
+                        "AVISO", "ENVIO_TICKET", result.Row.Id.ToString(), $"envio:{result.Row.Id}:FALLO_INTEGRACION",
+                        new { ticketId = ticket.Id, ticket = ticket.NumeroSecuencial, canal = result.Row.Canal, estado = result.State, momentoUtc = timeProvider.GetUtcNow() }, CancellationToken.None);
             }
             await transaction.CommitAsync(CancellationToken.None);
         }

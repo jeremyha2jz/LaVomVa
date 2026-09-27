@@ -11,7 +11,7 @@ namespace TicketsCombustible.Api.Controllers;
 
 [ApiController]
 [Route("api/recepciones")]
-public class RecepcionesController(TicketsCombustibleDbContext db, IAuditoriaService auditoria) : ControllerBase
+public class RecepcionesController(TicketsCombustibleDbContext db, IAuditoriaService auditoria, NotificacionService notifications) : ControllerBase
 {
     [HttpGet("proveedores")]
     public async Task<IActionResult> Proveedores() => Ok(await db.Proveedores.Where(x => x.Activo).OrderBy(x => x.Nombre).ToListAsync());
@@ -42,12 +42,19 @@ public class RecepcionesController(TicketsCombustibleDbContext db, IAuditoriaSer
         if (await db.Tanques.CountAsync(x => request.Detalles.Select(d => d.TanqueId).Contains(x.Id) && x.Activo) != request.Detalles.Count) return BadRequest("Uno o más tanques son inválidos.");
 
         await using var transaction = await db.Database.BeginTransactionAsync();
+        foreach (var tankId in request.Detalles.Select(x => x.TanqueId).Order())
+            _ = await db.Tanques.FromSqlInterpolated($"SELECT * FROM tanques WHERE id_tanque={tankId} FOR UPDATE").AsNoTracking().SingleAsync();
         var recepcion = new RecepcionCombustible { ProveedorId = request.ProveedorId, NumeroFactura = request.NumeroFactura, FechaRecepcion = DateTime.SpecifyKind(request.FechaRecepcion, DateTimeKind.Unspecified), UsuarioReceptorId = actorId, Observaciones = request.Observaciones };
         try
         {
             db.Recepciones.Add(recepcion); await db.SaveChangesAsync();
             db.DetallesRecepcion.AddRange(request.Detalles.Select(x => new DetalleRecepcion { RecepcionId = recepcion.Id, TanqueId = x.TanqueId, VolumenRecibidoGalones = x.VolumenRecibidoGalones, CostoUnitario = x.CostoUnitario }));
             await db.SaveChangesAsync();
+            foreach (var tankId in request.Detalles.Select(x => x.TanqueId))
+            {
+                var stockAfter = await db.Tanques.AsNoTracking().Where(x => x.Id == tankId).Select(x => x.ExistenciaActualGalones).SingleAsync();
+                await notifications.SincronizarEpisodioInventarioAsync(tankId, stockAfter);
+            }
             await auditoria.RegistrarAsync("RECEIPT_CREATED", "RECEPCION", recepcion.Id.ToString(), "EXITO",
                 datosNuevos: new { recepcion.Id, recepcion.ProveedorId, recepcion.NumeroFactura, recepcion.FechaRecepcion, detalles = request.Detalles.Select(x => new { x.TanqueId, x.VolumenRecibidoGalones, x.CostoUnitario }) });
             await transaction.CommitAsync();

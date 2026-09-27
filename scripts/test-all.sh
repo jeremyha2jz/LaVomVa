@@ -35,6 +35,7 @@ qa_port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0))
 "$pg_bindir/psql" -h 127.0.0.1 -p "$qa_port" -U qa_runner -d lavomva_test -v ON_ERROR_STOP=1 -f backend/TicketsCombustible.Api/Migrations/003_cierre_diario.sql >/dev/null
 "$pg_bindir/psql" -h 127.0.0.1 -p "$qa_port" -U qa_runner -d lavomva_test -v ON_ERROR_STOP=1 -f backend/TicketsCombustible.Api/Migrations/004_ticket_delivery.sql >/dev/null
 "$pg_bindir/psql" -h 127.0.0.1 -p "$qa_port" -U qa_runner -d lavomva_test -v ON_ERROR_STOP=1 -f backend/TicketsCombustible.Api/Migrations/005_solicitud_scheduling.sql >/dev/null
+"$pg_bindir/psql" -h 127.0.0.1 -p "$qa_port" -U qa_runner -d lavomva_test -v ON_ERROR_STOP=1 -f backend/TicketsCombustible.Api/Migrations/006_persistent_notifications.sql >/dev/null
 export QA_TEST_CONNECTION="Host=127.0.0.1;Port=$qa_port;Database=lavomva_test;Username=qa_runner;Pooling=false"
 
 echo "== Web unit tests =="

@@ -26,6 +26,7 @@ public class TicketsCombustibleDbContext(DbContextOptions<TicketsCombustibleDbCo
     public DbSet<DetalleRecepcion> DetallesRecepcion => Set<DetalleRecepcion>();
     public DbSet<CierreDiario> CierresDiarios => Set<CierreDiario>();
     public DbSet<RegistroAuditoria> Auditoria => Set<RegistroAuditoria>();
+    public DbSet<Notificacion> Notificaciones => Set<Notificacion>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -34,6 +35,10 @@ public class TicketsCombustibleDbContext(DbContextOptions<TicketsCombustibleDbCo
         modelBuilder.Entity<Vehiculo>().ToTable("vehiculos").HasKey(x => x.Id);
         modelBuilder.Entity<TipoCombustible>().ToTable("tipos_combustible").HasKey(x => x.Id);
         modelBuilder.Entity<Tanque>().ToTable("tanques").HasKey(x => x.Id);
+        modelBuilder.Entity<Notificacion>().ToTable("notificaciones").HasKey(x => x.Id);
+        modelBuilder.Entity<Notificacion>().Property(x => x.FechaCreacion).HasColumnType("timestamp without time zone");
+        modelBuilder.Entity<Notificacion>().Property(x => x.FechaEnvio).HasColumnType("timestamp without time zone");
+        modelBuilder.Entity<Notificacion>().Property(x => x.FechaLectura).HasColumnType("timestamp without time zone");
         modelBuilder.Entity<Estacion>().ToTable("estaciones").HasKey(x => x.Id);
         modelBuilder.Entity<SolicitudCombustible>().ToTable("solicitudes_combustible").HasKey(x => x.Id);
         modelBuilder.Entity<ProgramacionSolicitud>().ToTable("programaciones_solicitud").HasKey(x => x.Id);
