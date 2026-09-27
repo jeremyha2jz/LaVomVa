@@ -16,6 +16,9 @@ builder.Services.AddDbContext<TicketsCombustibleDbContext>(options => options.Us
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IAuditoriaService, AuditoriaService>();
 builder.Services.AddScoped<CierreDiarioService>();
+builder.Services.AddScoped<SolicitudProgramacionService>();
+builder.Services.AddScoped<ISolicitudProgramacionProcessor>(services => services.GetRequiredService<SolicitudProgramacionService>());
+if (!builder.Environment.IsEnvironment("Testing")) builder.Services.AddHostedService<SolicitudProgramacionWorker>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<TicketLifecycleService>();
 builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();

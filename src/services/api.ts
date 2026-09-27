@@ -77,6 +77,33 @@ export async function reconcileTicketDelivery(ticketId: string, envioId: number,
   })
 }
 
+export type ScheduleType = 'AUTOMATICA' | 'RECURRENTE'
+export type ScheduleFrequency = 'DIARIA' | 'SEMANAL' | 'MENSUAL'
+export type ProgrammedRequest = {
+  id: number; tipoSolicitud: ScheduleType; empleadoId: number; vehiculoId: number; departamentoId: number
+  tipoCombustibleId: number; cantidadSolicitadaGalones: number; fechaInicial: string; fechaFinal: string | null
+  frecuencia: ScheduleFrequency | null; proximaEjecucion: string | null; ultimaEjecucion: string | null
+  activa: boolean; usuarioCreadorId: number; creadoEn: string; actualizadoEn: string
+}
+export type ProgrammedRequestBody = Pick<ProgrammedRequest, 'tipoSolicitud' | 'empleadoId' | 'vehiculoId' | 'departamentoId' | 'tipoCombustibleId' | 'cantidadSolicitadaGalones' | 'fechaInicial' | 'fechaFinal' | 'frecuencia'>
+export type ProgrammedExecution = { id: number; programacionId: number; fechaProgramada: string; ejecutadaEn: string; estado: 'GENERADA' | 'FALLIDA'; solicitudGeneradaId: number | null; estadoSolicitud: string | null; detalleError: string | null }
+
+export async function listProgrammedRequests(): Promise<ProgrammedRequest[]> {
+  return request<ProgrammedRequest[]>('/programaciones')
+}
+export async function createProgrammedRequest(body: ProgrammedRequestBody): Promise<ProgrammedRequest> {
+  return request<ProgrammedRequest>('/programaciones', { method: 'POST', body: JSON.stringify(body) })
+}
+export async function updateProgrammedRequest(id: number, body: ProgrammedRequestBody): Promise<ProgrammedRequest> {
+  return request<ProgrammedRequest>(`/programaciones/${id}`, { method: 'PUT', body: JSON.stringify(body) })
+}
+export async function setProgrammedRequestActive(id: number, active: boolean): Promise<ProgrammedRequest> {
+  return request<ProgrammedRequest>(`/programaciones/${id}/${active ? 'activar' : 'desactivar'}`, { method: 'POST' })
+}
+export async function programmedRequestHistory(id: number): Promise<ProgrammedExecution[]> {
+  return request<ProgrammedExecution[]>(`/programaciones/${id}/ejecuciones`)
+}
+
 export type CierreTankSummary = {
   tanqueId: number; codigo: string; nombre: string; capacidadGalones: number
   inventarioInicialGalones: number; entradasGalones: number; despachadoGalones: number

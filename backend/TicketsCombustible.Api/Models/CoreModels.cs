@@ -42,7 +42,38 @@ public class Tanque { [Key, Column("id_tanque")] public long Id { get; set; } [C
 public class Estacion { [Key, Column("id_estacion")] public long Id { get; set; } [Column("nombre")] public string Nombre { get; set; } = null!; [Column("ubicacion")] public string? Ubicacion { get; set; } [Column("activo")] public bool Activo { get; set; } = true; }
 public enum EstadoSolicitud { PENDIENTE, APROBADA, RECHAZADA, CANCELADA }
 public enum EstadoTicket { CREADO, ENVIADO, PENDIENTE, PROXIMO_A_VENCER, VENCIDO, CONSUMIDO, ANULADO }
-public class SolicitudCombustible { [Key, Column("id_solicitud")] public long Id { get; set; } [Column("id_empleado")] public long EmpleadoId { get; set; } [Column("id_vehiculo")] public long VehiculoId { get; set; } [Column("id_departamento")] public long DepartamentoId { get; set; } [Column("id_tipo_combustible")] public long TipoCombustibleId { get; set; } [Column("cantidad_solicitada_galones")] public decimal CantidadSolicitadaGalones { get; set; } [Column("cantidad_autorizada_galones")] public decimal? CantidadAutorizadaGalones { get; set; } [Column("fecha_solicitud")] public DateTime FechaSolicitud { get; set; } [Column("fecha_vencimiento")] public DateTime? FechaVencimiento { get; set; } [Column("tipo_solicitud")] public string TipoSolicitud { get; set; } = "MANUAL"; [Column("motivo")] public string? Motivo { get; set; } [Column("estado")] public EstadoSolicitud Estado { get; set; } [Column("id_usuario_creador")] public long? UsuarioCreadorId { get; set; } [Column("id_usuario_aprobador")] public long? UsuarioAprobadorId { get; set; } [Column("fecha_aprobacion")] public DateTime? FechaAprobacion { get; set; } }
+public class SolicitudCombustible { [Key, Column("id_solicitud")] public long Id { get; set; } [Column("id_empleado")] public long EmpleadoId { get; set; } [Column("id_vehiculo")] public long VehiculoId { get; set; } [Column("id_departamento")] public long DepartamentoId { get; set; } [Column("id_tipo_combustible")] public long TipoCombustibleId { get; set; } [Column("cantidad_solicitada_galones")] public decimal CantidadSolicitadaGalones { get; set; } [Column("cantidad_autorizada_galones")] public decimal? CantidadAutorizadaGalones { get; set; } [Column("fecha_solicitud")] public DateTime FechaSolicitud { get; set; } [Column("fecha_vencimiento")] public DateTime? FechaVencimiento { get; set; } [Column("tipo_solicitud")] public string TipoSolicitud { get; set; } = "MANUAL"; [Column("frecuencia")] public string? Frecuencia { get; set; } [Column("motivo")] public string? Motivo { get; set; } [Column("estado")] public EstadoSolicitud Estado { get; set; } [Column("id_usuario_creador")] public long? UsuarioCreadorId { get; set; } [Column("id_usuario_aprobador")] public long? UsuarioAprobadorId { get; set; } [Column("fecha_aprobacion")] public DateTime? FechaAprobacion { get; set; } }
+
+public sealed class ProgramacionSolicitud
+{
+    [Key, Column("id_programacion")] public long Id { get; set; }
+    [Column("tipo_solicitud")] public string TipoSolicitud { get; set; } = null!;
+    [Column("id_empleado")] public long EmpleadoId { get; set; }
+    [Column("id_vehiculo")] public long VehiculoId { get; set; }
+    [Column("id_departamento")] public long DepartamentoId { get; set; }
+    [Column("id_tipo_combustible")] public long TipoCombustibleId { get; set; }
+    [Column("cantidad_solicitada_galones")] public decimal CantidadSolicitadaGalones { get; set; }
+    [Column("fecha_inicial")] public DateTime FechaInicial { get; set; }
+    [Column("fecha_final")] public DateTime? FechaFinal { get; set; }
+    [Column("frecuencia")] public string? Frecuencia { get; set; }
+    [Column("proxima_ejecucion")] public DateTime? ProximaEjecucion { get; set; }
+    [Column("ultima_ejecucion")] public DateTime? UltimaEjecucion { get; set; }
+    [Column("activa")] public bool Activa { get; set; }
+    [Column("id_usuario_creador")] public long UsuarioCreadorId { get; set; }
+    [Column("creado_en")] public DateTime CreadoEn { get; set; }
+    [Column("actualizado_en")] public DateTime ActualizadoEn { get; set; }
+}
+
+public sealed class EjecucionProgramada
+{
+    [Key, Column("id_ejecucion")] public long Id { get; set; }
+    [Column("id_programacion")] public long ProgramacionId { get; set; }
+    [Column("fecha_programada")] public DateTime FechaProgramada { get; set; }
+    [Column("ejecutada_en")] public DateTime EjecutadaEn { get; set; }
+    [Column("estado")] public string Estado { get; set; } = null!;
+    [Column("id_solicitud_generada")] public long? SolicitudGeneradaId { get; set; }
+    [Column("detalle_error")] public string? DetalleError { get; set; }
+}
 public class Ticket { [Key, Column("id_ticket")] public Guid Id { get; set; } [Column("id_solicitud")] public long SolicitudId { get; set; } [Column("numero_secuencial")] public string NumeroSecuencial { get; set; } = null!; [Column("id_empleado")] public long EmpleadoId { get; set; } [Column("id_vehiculo")] public long VehiculoId { get; set; } [Column("id_departamento")] public long DepartamentoId { get; set; } [Column("id_tipo_combustible")] public long TipoCombustibleId { get; set; } [Column("cantidad_autorizada_galones")] public decimal CantidadAutorizadaGalones { get; set; } [Column("fecha_creacion")] public DateTime FechaCreacion { get; set; } [Column("fecha_vencimiento")] public DateTime FechaVencimiento { get; set; } [Column("estado")] public EstadoTicket Estado { get; set; } [Column("qr_hash")] public string QrHash { get; set; } = null!; [Column("qr_token")] public string QrToken { get; set; } = null!; [Column("anulado_en")] public DateTime? AnuladoEn { get; set; } [Column("motivo_anulacion")] public string? MotivoAnulacion { get; set; } [Column("id_usuario_anulacion")] public long? UsuarioAnulacionId { get; set; } }
 public class EnvioTicket
 {

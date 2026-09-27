@@ -77,9 +77,10 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
         var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
         await db.Database.ExecuteSqlRawAsync("""
             TRUNCATE TABLE auditoria, notificaciones, cierres_diarios, movimientos_inventario,
-              detalle_recepciones, recepciones_combustible, envios_ticket, despachos, tickets,
-              solicitudes_combustible, tanques, estaciones, proveedores, vehiculos, empleados,
-              departamentos, usuarios RESTART IDENTITY CASCADE
+              ejecuciones_programadas, programaciones_solicitud, detalle_recepciones,
+              recepciones_combustible, envios_ticket, despachos, tickets, solicitudes_combustible,
+              tanques, estaciones, proveedores, vehiculos, empleados, departamentos, usuarios
+              RESTART IDENTITY CASCADE
             """);
         await db.Database.ExecuteSqlRawAsync("UPDATE configuracion_tickets SET secuencia_actual = 0, anio_secuencia = EXTRACT(YEAR FROM CURRENT_DATE)::INTEGER");
     }

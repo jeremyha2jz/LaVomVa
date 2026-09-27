@@ -3,11 +3,13 @@ import { useMemo, useState, type FormEvent } from 'react'
 import { useApp, type NewRequest } from '../context/AppContext'
 import { EmptyState, formatDate, Modal, PageHeader, SearchBox, StatusBadge } from '../components/ui'
 import type { FuelRequest, RequestStatus } from '../types'
+import { ScheduleManager } from '../components/ScheduleManager'
 
 export function Requests() {
   const { requests, catalogs, addRequest, resolveRequest, notify, session } = useApp()
   const canRequest = ['ADMINISTRADOR', 'SUPERVISOR', 'SOLICITANTE'].includes(session?.role || '')
   const canApprove = ['ADMINISTRADOR', 'SUPERVISOR'].includes(session?.role || '')
+  const canManageSchedules = canApprove
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<'TODAS' | RequestStatus>('TODAS')
   const [newOpen, setNewOpen] = useState(false)
@@ -28,6 +30,7 @@ export function Requests() {
 
   return <div className="page">
     <PageHeader eyebrow="Operación" title="Solicitudes de combustible" description="Revisa, aprueba y da seguimiento a las solicitudes de combustible." actions={canRequest ? <button className="primary-button" onClick={() => setNewOpen(true)}><Plus size={17} /> Nueva solicitud</button> : undefined} />
+    {canManageSchedules && <ScheduleManager />}
     <section className="panel table-panel">
       <div className="table-toolbar"><SearchBox value={search} onChange={setSearch} placeholder="Buscar por empleado, placa o número…" /><label className="select-wrap"><Filter size={16} /><select value={status} onChange={(event) => setStatus(event.target.value as typeof status)}><option value="TODAS">Todos los estados</option><option>PENDIENTE</option><option>APROBADA</option><option>RECHAZADA</option><option>CANCELADA</option></select></label></div>
       <div className="table-scroll"><table><thead><tr><th>Solicitud</th><th>Empleado y vehículo</th><th>Departamento</th><th>Cantidad</th><th>Fecha</th><th>Estado</th><th /></tr></thead><tbody>{filtered.map((request) => <tr key={request.id} onClick={() => openRequest(request)}><td><strong>#{request.id}</strong><small>{request.kind}</small></td><td><strong>{request.employee}</strong><small>{request.vehicle}</small></td><td>{request.department}</td><td><strong>{request.requestedGallons} gal</strong><small>{request.fuelType}</small></td><td>{formatDate(request.requestedAt)}<small>Vence {formatDate(request.expiresAt)}</small></td><td><StatusBadge value={request.status} /></td><td><button className="icon-button" aria-label={`Ver solicitud ${request.id}`}><ChevronRight size={18} /></button></td></tr>)}</tbody></table>{filtered.length === 0 && <EmptyState title="No hay solicitudes" description="Cambia los filtros o crea una nueva solicitud." />}</div>
@@ -54,7 +57,7 @@ function NewRequestModal({ onClose, onSubmit }: { onClose: () => void; onSubmit:
     if (!employee || !vehicle || !department || !fuelType) { notify('Datos incompletos', 'Selecciona valores válidos en todos los catálogos.', 'error'); return }
     setBusy(true)
     try {
-      await onSubmit({ employeeId: employee.id, employee: employee.name, employeeCode: employee.code, vehicleId: vehicle.id, vehicle: `${vehicle.plate} · ${vehicle.brand} ${vehicle.model}`, departmentId: department.id, department: department.name, fuelTypeId: fuelType.id, fuelType: fuelType.name, requestedGallons: Number(data.get('gallons')), expiresAt: new Date(String(data.get('expiresAt'))).toISOString(), kind: String(data.get('kind')) as FuelRequest['kind'], reason: String(data.get('reason')) })
+      await onSubmit({ employeeId: employee.id, employee: employee.name, employeeCode: employee.code, vehicleId: vehicle.id, vehicle: `${vehicle.plate} · ${vehicle.brand} ${vehicle.model}`, departmentId: department.id, department: department.name, fuelTypeId: fuelType.id, fuelType: fuelType.name, requestedGallons: Number(data.get('gallons')), expiresAt: new Date(String(data.get('expiresAt'))).toISOString(), kind: 'MANUAL', reason: String(data.get('reason')) })
     } catch (cause) { notify('No se pudo registrar', cause instanceof Error ? cause.message : 'Error de la API.', 'error') }
     finally { setBusy(false) }
   }
@@ -65,7 +68,6 @@ function NewRequestModal({ onClose, onSubmit }: { onClose: () => void; onSubmit:
     <label>Tipo de combustible<select name="fuelType" required defaultValue=""><option value="">Selecciona un combustible</option>{catalogs.fuelTypes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
     <label>Galones solicitados<input name="gallons" type="number" min="0.1" step="0.1" required /></label>
     <label>Fecha de vencimiento<input name="expiresAt" type="datetime-local" min={new Date().toISOString().slice(0, 16)} required /></label>
-    <label>Tipo de solicitud<select name="kind"><option value="MANUAL">Manual</option><option value="AUTOMATICA">Automática</option><option value="RECURRENTE">Recurrente</option></select></label>
     <label className="form-wide">Motivo<textarea name="reason" rows={3} required placeholder="Describe el uso previsto del combustible" /></label>
     <div className="form-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancelar</button><button className="primary-button" disabled={busy} type="submit">{busy ? 'Guardando…' : 'Registrar solicitud'}</button></div>
   </form></Modal>

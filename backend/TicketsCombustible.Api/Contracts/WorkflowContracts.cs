@@ -6,6 +6,25 @@ public record CrearTicketRequest(long SolicitudId, long? UsuarioEmisorId);
 public sealed record CrearCierreDiarioRequest(long EstacionId, DateOnly Fecha, List<InventarioFisicoTanqueRequest> InventariosFisicos, string? Observaciones = null);
 public sealed record EnviarTicketRequest(string Canal, Guid IdempotencyKey);
 public sealed record ReconciliarEnvioTicketRequest(string Estado);
+public sealed record CrearProgramacionSolicitudRequest(
+    string TipoSolicitud,
+    long EmpleadoId,
+    long VehiculoId,
+    long DepartamentoId,
+    long TipoCombustibleId,
+    decimal CantidadSolicitadaGalones,
+    DateTimeOffset FechaInicial,
+    DateTimeOffset? FechaFinal,
+    string? Frecuencia);
+public sealed record ProgramacionSolicitudResponse(
+    long Id, string TipoSolicitud, long EmpleadoId, long VehiculoId, long DepartamentoId,
+    long TipoCombustibleId, decimal CantidadSolicitadaGalones, DateTimeOffset FechaInicial,
+    DateTimeOffset? FechaFinal, string? Frecuencia, DateTimeOffset? ProximaEjecucion,
+    DateTimeOffset? UltimaEjecucion, bool Activa, long UsuarioCreadorId,
+    DateTimeOffset CreadoEn, DateTimeOffset ActualizadoEn);
+public sealed record EjecucionProgramadaResponse(
+    long Id, long ProgramacionId, DateTimeOffset FechaProgramada, DateTimeOffset EjecutadaEn,
+    string Estado, long? SolicitudGeneradaId, string? EstadoSolicitud, string? DetalleError);
 public sealed record InventarioFisicoTanqueRequest(long TanqueId, decimal? InventarioFisicoGalones);
 public sealed record AnularTicketRequest
 {

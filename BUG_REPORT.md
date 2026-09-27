@@ -143,3 +143,46 @@ En la fase de RF-18 no se encontró un bug nuevo de producto que requiriera BUG-
 ## Continuación de QA — RF-09
 
 Se ejecutó `pnpm test:all`: 192/192 pruebas pasan y 0 omitidas. No quedan bugs nuevos pendientes. SMTP y SMS se reemplazaron por fakes durante las pruebas.
+
+## BUG-10
+
+- **Severidad:** HIGH
+- **Requisito:** RF-11
+- **Componente:** API, consulta de ejecuciones vencidas del scheduler PostgreSQL
+- **Reproducción:** crear una programación válida con fecha inicial UTC, avanzar el `TimeProvider` a esa fecha y ejecutar `ISolicitudProgramacionProcessor.ProcessDueAsync`.
+- **Resultado esperado:** seleccionar la programación vencida y generar su solicitud dentro de la transacción.
+- **Resultado obtenido:** Npgsql rechazaba el parámetro de fecha por una incompatibilidad entre `DateTimeKind.Unspecified` y `timestamp with time zone`; el worker no generaba la solicitud.
+- **Causa:** el parámetro de una consulta SQL interpolada no fijaba explícitamente el tipo `timestamp without time zone` usado por `proxima_ejecucion`.
+- **Corrección:** enlazar los parámetros `now` y `batchLimit` con tipos Npgsql explícitos; se conserva el instante UTC representado como timestamp sin zona.
+- **Regression test:** `ApiCoverageTests.Programacion_recurrente_genera_solicitud_pendiente_auditoria_y_salta_periodos_atrasados`, `Programacion_automatica_es_unica_y_dos_workers_no_generan_doble_solicitud`, `Programacion_mensual_conserva_el_ancla_en_fin_de_mes_y_ano_bisiesto` y los demás tests del procesador.
+- **Estado:** Corregido y verificado en `pnpm test:all` (213/213, 0 omitidos).
+
+## BUG-12
+
+- **Severidad:** MEDIUM
+- **Requisito:** RF-11
+- **Componente:** Web, fecha sugerida de nueva programación
+- **Reproducción:** abrir Nueva programación en un navegador cuya zona local no sea UTC.
+- **Resultado esperado:** la fecha sugerida representa aproximadamente un minuto después del instante actual.
+- **Resultado obtenido:** la conversión local se aplicaba dos veces y desplazaba el valor sugerido por varias horas.
+- **Causa:** `defaultStart` devolvía un valor ya formateado para `datetime-local`, que luego volvía a pasar por el convertidor de instante a hora local.
+- **Corrección:** `defaultStart` devuelve ISO UTC; el campo convierte ese instante a hora local una sola vez.
+- **Regression test:** `ScheduleManager.test.tsx` comprueba que la hora sugerida permanezca entre 50 y 75 segundos después de ahora.
+- **Estado:** Corregido y verificado en `pnpm test:all` (213/213, 0 omitidos).
+
+## Continuación de QA — RF-11
+
+La primera validación de RF-11 terminó en 212/212. La corrida final, tras incluir recuperación de automáticas fallidas y corregir la zona horaria sugerida en el formulario, terminó en 213/213, sin fallos ni omitidos. Se encontraron y corrigieron BUG-10, BUG-11 y BUG-12. No quedan bugs nuevos pendientes de RF-11. Los avisos EF1002 observados están en un fixture de fecha UTC preexistente; no son defectos del producto.
+
+## BUG-11
+
+- **Severidad:** MEDIUM
+- **Requisito:** RF-11
+- **Componente:** API, reactivación de programaciones automáticas fallidas
+- **Reproducción:** ejecutar una programación AUTOMATICA con una referencia inactiva y luego corregir esa referencia e intentar reactivar.
+- **Resultado esperado:** permitir un nuevo intento registrado después de corregir el catálogo, manteniendo la ejecución fallida en el historial.
+- **Resultado obtenido:** la política inicial bloqueaba toda reactivación con historial, incluidas las fallidas, e impedía recuperarse.
+- **Causa:** la condición de ejecución única no distinguía una solicitud generada con éxito de un intento fallido.
+- **Corrección:** bloquear reactivación solo si ya existe ejecución `GENERADA`; programar los reintentos de ejecuciones fallidas para un instante distinto, conservando la clave única y el historial.
+- **Regression test:** `ApiCoverageTests.Programacion_automatica_fallida_se_puede_reactivar_tras_corregir_referencia`.
+- **Estado:** Corregido y verificado en `pnpm test:all` (213/213, 0 omitidos).

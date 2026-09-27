@@ -21,7 +21,7 @@ public interface IAuditoriaService
         CancellationToken cancellationToken = default);
 }
 
-public sealed class AuditoriaService(TicketsCombustibleDbContext db, IHttpContextAccessor httpContextAccessor) : IAuditoriaService
+public sealed class AuditoriaService(TicketsCombustibleDbContext db, IHttpContextAccessor httpContextAccessor, TimeProvider timeProvider) : IAuditoriaService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -49,7 +49,7 @@ public sealed class AuditoriaService(TicketsCombustibleDbContext db, IHttpContex
             DatosAnteriores = SafeJson(datosAnteriores),
             DatosNuevos = SafeJson(datosNuevos),
             DireccionIp = context?.Connection.RemoteIpAddress,
-            FechaHora = DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Unspecified),
+            FechaHora = DateTime.SpecifyKind(timeProvider.GetUtcNow().UtcDateTime, DateTimeKind.Unspecified),
             Resultado = resultado == "EXITO" ? "EXITO" : "FALLO",
             Detalle = detalle
         };

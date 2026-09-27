@@ -21,6 +21,8 @@ public class SolicitudesController(TicketsCombustibleDbContext db, IAuditoriaSer
     public async Task<IActionResult> Crear(CrearSolicitudRequest request)
     {
         if (!long.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var actorId)) return Unauthorized();
+        if (!string.Equals(request.TipoSolicitud, "MANUAL", StringComparison.OrdinalIgnoreCase))
+            return BadRequest("Las solicitudes automáticas y recurrentes deben crearse como programaciones.");
         if (request.CantidadSolicitadaGalones <= 0) return BadRequest("La cantidad solicitada debe ser mayor que cero.");
         DateTime? fechaVencimiento = request.FechaVencimiento is { } vence ? FechaSinZona(vence) : null;
         if (fechaVencimiento <= DateTime.UtcNow) return BadRequest("La fecha de vencimiento debe ser futura.");

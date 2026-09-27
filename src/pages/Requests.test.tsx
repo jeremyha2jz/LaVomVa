@@ -4,7 +4,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { Requests } from './Requests'
 
 const context = vi.hoisted(() => ({ value: null as unknown }))
+const scheduleApi = vi.hoisted(() => ({ list: vi.fn().mockResolvedValue([]) }))
 vi.mock('../context/AppContext', () => ({ useApp: () => context.value }))
+vi.mock('../services/api', async (importOriginal) => ({ ...(await importOriginal<typeof import('../services/api')>()), listProgrammedRequests: scheduleApi.list }))
 
 afterEach(cleanup)
 
@@ -29,11 +31,10 @@ describe('solicitudes y validación del formulario', () => {
     fireEvent.change(screen.getByLabelText('Tipo de combustible'), { target: { value: '4' } })
     fireEvent.change(screen.getByLabelText('Galones solicitados'), { target: { value: '8' } })
     fireEvent.change(screen.getByLabelText('Fecha de vencimiento'), { target: { value: '2027-06-15T10:00' } })
-    fireEvent.change(screen.getByLabelText('Tipo de solicitud'), { target: { value: 'RECURRENTE' } })
     fireEvent.change(screen.getByLabelText('Motivo'), { target: { value: 'Ruta de prueba' } })
     fireEvent.submit(screen.getByRole('dialog').querySelector('form')!)
     await waitFor(() => expect(addRequest).toHaveBeenCalledOnce())
-    expect(addRequest).toHaveBeenCalledWith(expect.objectContaining({ employeeId: 1, vehicleId: 2, departmentId: 3, fuelTypeId: 4, requestedGallons: 8, kind: 'RECURRENTE', reason: 'Ruta de prueba' }))
+    expect(addRequest).toHaveBeenCalledWith(expect.objectContaining({ employeeId: 1, vehicleId: 2, departmentId: 3, fuelTypeId: 4, requestedGallons: 8, kind: 'MANUAL', reason: 'Ruta de prueba' }))
     expect(addRequest.mock.calls[0][0].expiresAt).toBe(new Date('2027-06-15T10:00').toISOString())
     expect(notify).not.toHaveBeenCalled()
   })

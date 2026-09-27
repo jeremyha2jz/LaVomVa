@@ -7,6 +7,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using TicketsCombustible.Api.Contracts;
 using TicketsCombustible.Api.Data;
 using TicketsCombustible.Api.Models;
 using TicketsCombustible.Api.Services;
@@ -115,6 +116,12 @@ public sealed class ApiCoverageTests(QaFixture qa)
     [InlineData("AUDITOR", "api/despachos", "POST", 403)]
     [InlineData("CONSULTA", "api/despachos", "POST", 403)]
     [InlineData("SOLICITANTE", "api/despachos", "POST", 403)]
+    [InlineData("ADMINISTRADOR", "api/programaciones", "GET", 200)]
+    [InlineData("SUPERVISOR", "api/programaciones", "GET", 200)]
+    [InlineData("DESPACHADOR", "api/programaciones", "GET", 403)]
+    [InlineData("AUDITOR", "api/programaciones", "GET", 403)]
+    [InlineData("CONSULTA", "api/programaciones", "GET", 403)]
+    [InlineData("SOLICITANTE", "api/programaciones", "GET", 403)]
     public async Task Matriz_RBAC_roles_por_endpoint(string role, string path, string method, int expectedStatus)
     {
         await qa.ResetAsync();
@@ -146,6 +153,394 @@ public sealed class ApiCoverageTests(QaFixture qa)
         Assert.Equal((HttpStatusCode)expectedStatus, response.StatusCode);
         Client.DefaultRequestHeaders.Authorization = null;
         _ = admin;
+    }
+
+    [Fact]
+    public async Task Programacion_recurrente_genera_solicitud_pendiente_auditoria_y_salta_periodos_atrasados()
+    {
+        await qa.ResetAsync();
+        var admin = await LoginAsync("qa.schedule.recurrent", "ADMINISTRADOR");
+        var catalog = await SeedCatalogAsync();
+        var start = new DateTimeOffset(2026, 9, 20, 12, 0, 0, TimeSpan.Zero);
+        qa.Factory.Clock.SetUtcNow(start);
+        var create = await Client.PostAsJsonAsync("api/programaciones", new
+        {
+            tipoSolicitud = "RECURRENTE", empleadoId = catalog.EmployeeId, vehiculoId = catalog.VehicleId,
+            departamentoId = catalog.DepartmentId, tipoCombustibleId = catalog.FuelId,
+            cantidadSolicitadaGalones = 12.5m, fechaInicial = start, fechaFinal = (DateTimeOffset?)null, frecuencia = "DIARIA"
+        });
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+        var schedule = await create.Content.ReadFromJsonAsync<JsonElement>();
+        var id = schedule.GetProperty("id").GetInt64();
+        qa.Factory.Clock.SetUtcNow(start.AddDays(5).AddHours(2));
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+        {
+            var processor = scope.ServiceProvider.GetRequiredService<ISolicitudProgramacionProcessor>();
+            Assert.Equal(1, await processor.ProcessDueAsync(CancellationToken.None));
+        }
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+            var run = await db.EjecucionesProgramadas.SingleAsync(x => x.ProgramacionId == id);
+            var generated = await db.Solicitudes.SingleAsync(x => x.Id == run.SolicitudGeneradaId);
+            var program = await db.ProgramacionesSolicitud.SingleAsync(x => x.Id == id);
+            Assert.Equal("GENERADA", run.Estado);
+            Assert.Equal(EstadoSolicitud.PENDIENTE, generated.Estado);
+            Assert.Equal("RECURRENTE", generated.TipoSolicitud);
+            Assert.Equal("DIARIA", generated.Frecuencia);
+            Assert.Equal(12.5m, generated.CantidadSolicitadaGalones);
+            Assert.Equal(start.AddDays(6).UtcDateTime, DateTime.SpecifyKind(program.ProximaEjecucion!.Value, DateTimeKind.Utc));
+            Assert.Contains(await db.Auditoria.ToListAsync(), x => x.Accion == "SOLICITUD_RECURRENTE_GENERADA");
+        }
+        var history = await Client.GetAsync($"api/programaciones/{id}/ejecuciones");
+        Assert.Equal(HttpStatusCode.OK, history.StatusCode);
+        var historyRows = await history.Content.ReadFromJsonAsync<JsonElement[]>();
+        Assert.NotNull(historyRows);
+        Assert.Single(historyRows);
+        Assert.Equal(admin.Id, schedule.GetProperty("usuarioCreadorId").GetInt64());
+        Client.DefaultRequestHeaders.Authorization = null;
+    }
+
+    [Fact]
+    public async Task Programacion_automatica_es_unica_y_dos_workers_no_generan_doble_solicitud()
+    {
+        await qa.ResetAsync();
+        _ = await LoginAsync("qa.schedule.race", "ADMINISTRADOR");
+        var catalog = await SeedCatalogAsync();
+        var start = new DateTimeOffset(2026, 9, 27, 3, 0, 0, TimeSpan.Zero);
+        qa.Factory.Clock.SetUtcNow(start.AddMinutes(-1));
+        var create = await Client.PostAsJsonAsync("api/programaciones", new
+        {
+            tipoSolicitud = "AUTOMATICA", empleadoId = catalog.EmployeeId, vehiculoId = catalog.VehicleId,
+            departamentoId = catalog.DepartmentId, tipoCombustibleId = catalog.FuelId,
+            cantidadSolicitadaGalones = 7m, fechaInicial = start, fechaFinal = (DateTimeOffset?)null, frecuencia = (string?)null
+        });
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+        var id = (await create.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt64();
+        qa.Factory.Clock.SetUtcNow(start);
+        async Task<int> RunWorkerAsync()
+        {
+            await using var scope = qa.Factory.Services.CreateAsyncScope();
+            return await scope.ServiceProvider.GetRequiredService<ISolicitudProgramacionProcessor>().ProcessDueAsync(CancellationToken.None);
+        }
+        var results = await Task.WhenAll(RunWorkerAsync(), RunWorkerAsync());
+        Assert.Equal(1, results.Sum());
+        Assert.Equal(0, await RunWorkerAsync());
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+            var program = await db.ProgramacionesSolicitud.SingleAsync(x => x.Id == id);
+            Assert.False(program.Activa);
+            Assert.Null(program.ProximaEjecucion);
+            Assert.Single(await db.EjecucionesProgramadas.Where(x => x.ProgramacionId == id).ToListAsync());
+            var request = await db.Solicitudes.SingleAsync(x => x.TipoSolicitud == "AUTOMATICA");
+            Assert.Equal(EstadoSolicitud.PENDIENTE, request.Estado);
+        }
+        Assert.Equal(HttpStatusCode.Conflict, (await Client.PostAsync($"api/programaciones/{id}/activar", null)).StatusCode);
+        Client.DefaultRequestHeaders.Authorization = null;
+    }
+
+    [Fact]
+    public async Task Programacion_valida_referencias_frecuencia_y_autenticacion_y_pausa_asociaciones_invalidas()
+    {
+        await qa.ResetAsync();
+        var catalog = await SeedCatalogAsync();
+        var payload = new CrearProgramacionSolicitudRequest("RECURRENTE", catalog.EmployeeId, catalog.VehicleId,
+            catalog.DepartmentId, catalog.FuelId, 4m, DateTimeOffset.UtcNow.AddDays(1), null, "QUINCENAL");
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Client.PostAsJsonAsync("api/programaciones", payload)).StatusCode);
+        _ = await LoginAsync("qa.schedule.invalid", "ADMINISTRADOR");
+        Assert.Equal(HttpStatusCode.BadRequest, (await Client.PostAsJsonAsync("api/programaciones", payload)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Client.PostAsJsonAsync("api/programaciones", payload with { Frecuencia = "DIARIA", CantidadSolicitadaGalones = 0m })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Client.PostAsJsonAsync("api/programaciones", payload with { Frecuencia = "DIARIA", CantidadSolicitadaGalones = -1m })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Client.PostAsJsonAsync("api/programaciones", payload with { Frecuencia = "DIARIA", FechaFinal = payload.FechaInicial.AddDays(-1) })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Client.PostAsJsonAsync("api/programaciones", payload with { TipoSolicitud = "MANUAL", Frecuencia = null })).StatusCode);
+        var valid = await Client.PostAsJsonAsync("api/programaciones", payload with { Frecuencia = "DIARIA" });
+        Assert.Equal(HttpStatusCode.Created, valid.StatusCode);
+        var id = (await valid.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt64();
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+            var employee = await db.Empleados.SingleAsync(x => x.Id == catalog.EmployeeId);
+            employee.Activo = false;
+            await db.SaveChangesAsync();
+        }
+        qa.Factory.Clock.SetUtcNow(payload.FechaInicial.AddMinutes(1));
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+            Assert.Equal(1, await scope.ServiceProvider.GetRequiredService<ISolicitudProgramacionProcessor>().ProcessDueAsync(CancellationToken.None));
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+            var schedule = await db.ProgramacionesSolicitud.SingleAsync(x => x.Id == id);
+            var failure = await db.EjecucionesProgramadas.SingleAsync(x => x.ProgramacionId == id);
+            Assert.False(schedule.Activa);
+            Assert.Equal("FALLIDA", failure.Estado);
+            Assert.NotNull(failure.DetalleError);
+            Assert.Empty(await db.Solicitudes.Where(x => x.TipoSolicitud == "RECURRENTE").ToListAsync());
+            Assert.Contains(await db.Auditoria.ToListAsync(), x => x.Accion == "EJECUCION_PROGRAMADA_FALLIDA");
+        }
+        Client.DefaultRequestHeaders.Authorization = null;
+    }
+
+    [Fact]
+    public async Task Programacion_mensual_conserva_el_ancla_en_fin_de_mes_y_ano_bisiesto()
+    {
+        await qa.ResetAsync();
+        _ = await LoginAsync("qa.schedule.monthly", "ADMINISTRADOR");
+        var catalog = await SeedCatalogAsync();
+        var start = new DateTimeOffset(2024, 1, 31, 10, 0, 0, TimeSpan.Zero);
+        qa.Factory.Clock.SetUtcNow(start.AddMinutes(-1));
+        var response = await Client.PostAsJsonAsync("api/programaciones", new
+        {
+            tipoSolicitud = "RECURRENTE", empleadoId = catalog.EmployeeId, vehiculoId = catalog.VehicleId,
+            departamentoId = catalog.DepartmentId, tipoCombustibleId = catalog.FuelId,
+            cantidadSolicitadaGalones = 9m, fechaInicial = start, fechaFinal = start.AddMonths(2), frecuencia = "MENSUAL"
+        });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var id = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt64();
+        qa.Factory.Clock.SetUtcNow(start);
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+            Assert.Equal(1, await scope.ServiceProvider.GetRequiredService<ISolicitudProgramacionProcessor>().ProcessDueAsync(CancellationToken.None));
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+            Assert.Equal(start.AddMonths(1).UtcDateTime, DateTime.SpecifyKind((await db.ProgramacionesSolicitud.SingleAsync(x => x.Id == id)).ProximaEjecucion!.Value, DateTimeKind.Utc));
+        }
+        qa.Factory.Clock.SetUtcNow(start.AddMonths(1));
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+            Assert.Equal(1, await scope.ServiceProvider.GetRequiredService<ISolicitudProgramacionProcessor>().ProcessDueAsync(CancellationToken.None));
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+            var program = await db.ProgramacionesSolicitud.SingleAsync(x => x.Id == id);
+            Assert.Equal(new DateTime(2024, 3, 31, 10, 0, 0), program.ProximaEjecucion);
+            Assert.Equal(2, await db.EjecucionesProgramadas.CountAsync(x => x.ProgramacionId == id));
+        }
+        Client.DefaultRequestHeaders.Authorization = null;
+    }
+
+    [Fact]
+    public async Task Programacion_se_desactiva_al_ejecutar_su_ultima_fecha_permitida()
+    {
+        await qa.ResetAsync();
+        _ = await LoginAsync("qa.schedule.until", "ADMINISTRADOR");
+        var catalog = await SeedCatalogAsync();
+        var start = new DateTimeOffset(2026, 10, 1, 12, 0, 0, TimeSpan.Zero);
+        qa.Factory.Clock.SetUtcNow(start.AddMinutes(-1));
+        var response = await Client.PostAsJsonAsync("api/programaciones", new
+        {
+            tipoSolicitud = "RECURRENTE", empleadoId = catalog.EmployeeId, vehiculoId = catalog.VehicleId,
+            departamentoId = catalog.DepartmentId, tipoCombustibleId = catalog.FuelId,
+            cantidadSolicitadaGalones = 9m, fechaInicial = start, fechaFinal = start, frecuencia = "SEMANAL"
+        });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var id = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt64();
+        qa.Factory.Clock.SetUtcNow(start);
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+            Assert.Equal(1, await scope.ServiceProvider.GetRequiredService<ISolicitudProgramacionProcessor>().ProcessDueAsync(CancellationToken.None));
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+            var program = await db.ProgramacionesSolicitud.SingleAsync(x => x.Id == id);
+            Assert.False(program.Activa);
+            Assert.Null(program.ProximaEjecucion);
+            Assert.Single(await db.EjecucionesProgramadas.Where(x => x.ProgramacionId == id).ToListAsync());
+        }
+        Client.DefaultRequestHeaders.Authorization = null;
+    }
+
+    [Fact]
+    public async Task Programacion_automatica_fallida_se_puede_reactivar_tras_corregir_referencia()
+    {
+        await qa.ResetAsync();
+        _ = await LoginAsync("qa.schedule.retry", "ADMINISTRADOR");
+        var catalog = await SeedCatalogAsync();
+        var start = new DateTimeOffset(2026, 9, 27, 10, 0, 0, TimeSpan.Zero);
+        qa.Factory.Clock.SetUtcNow(start.AddMinutes(-1));
+        var create = await Client.PostAsJsonAsync("api/programaciones", new
+        {
+            tipoSolicitud = "AUTOMATICA", empleadoId = catalog.EmployeeId, vehiculoId = catalog.VehicleId,
+            departamentoId = catalog.DepartmentId, tipoCombustibleId = catalog.FuelId,
+            cantidadSolicitadaGalones = 5m, fechaInicial = start, fechaFinal = (DateTimeOffset?)null, frecuencia = (string?)null
+        });
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+        var id = (await create.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt64();
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+            (await db.Empleados.SingleAsync(x => x.Id == catalog.EmployeeId)).Activo = false;
+            await db.SaveChangesAsync();
+        }
+        qa.Factory.Clock.SetUtcNow(start);
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+            Assert.Equal(1, await scope.ServiceProvider.GetRequiredService<ISolicitudProgramacionProcessor>().ProcessDueAsync(CancellationToken.None));
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+            (await db.Empleados.SingleAsync(x => x.Id == catalog.EmployeeId)).Activo = true;
+            await db.SaveChangesAsync();
+        }
+        var activated = await Client.PostAsync($"api/programaciones/{id}/activar", null);
+        Assert.Equal(HttpStatusCode.OK, activated.StatusCode);
+        var retryAt = (await activated.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("proximaEjecucion").GetDateTimeOffset();
+        qa.Factory.Clock.SetUtcNow(retryAt);
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+            Assert.Equal(1, await scope.ServiceProvider.GetRequiredService<ISolicitudProgramacionProcessor>().ProcessDueAsync(CancellationToken.None));
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+            Assert.Equal(new[] { "FALLIDA", "GENERADA" }, await db.EjecucionesProgramadas.Where(x => x.ProgramacionId == id).OrderBy(x => x.Id).Select(x => x.Estado).ToArrayAsync());
+            Assert.Single(await db.Solicitudes.Where(x => x.TipoSolicitud == "AUTOMATICA").ToListAsync());
+            Assert.False((await db.ProgramacionesSolicitud.SingleAsync(x => x.Id == id)).Activa);
+        }
+        Client.DefaultRequestHeaders.Authorization = null;
+    }
+
+    [Theory]
+    [InlineData("vehiculo")]
+    [InlineData("departamento")]
+    public async Task Programacion_pausada_con_referencia_inactiva(string reference)
+    {
+        await qa.ResetAsync();
+        _ = await LoginAsync($"qa.schedule.inactive.{reference}", "ADMINISTRADOR");
+        var catalog = await SeedCatalogAsync();
+        var start = new DateTimeOffset(2026, 9, 27, 10, 0, 0, TimeSpan.Zero);
+        qa.Factory.Clock.SetUtcNow(start.AddMinutes(-1));
+        var create = await Client.PostAsJsonAsync("api/programaciones", new
+        {
+            tipoSolicitud = "RECURRENTE", empleadoId = catalog.EmployeeId, vehiculoId = catalog.VehicleId,
+            departamentoId = catalog.DepartmentId, tipoCombustibleId = catalog.FuelId,
+            cantidadSolicitadaGalones = 3m, fechaInicial = start, fechaFinal = (DateTimeOffset?)null, frecuencia = "DIARIA"
+        });
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+        var id = (await create.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt64();
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+            if (reference == "vehiculo") (await db.Vehiculos.SingleAsync(x => x.Id == catalog.VehicleId)).Activo = false;
+            else (await db.Departamentos.SingleAsync(x => x.Id == catalog.DepartmentId)).Activo = false;
+            await db.SaveChangesAsync();
+        }
+        qa.Factory.Clock.SetUtcNow(start);
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+            Assert.Equal(1, await scope.ServiceProvider.GetRequiredService<ISolicitudProgramacionProcessor>().ProcessDueAsync(CancellationToken.None));
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+            Assert.False((await db.ProgramacionesSolicitud.SingleAsync(x => x.Id == id)).Activa);
+            Assert.Equal("FALLIDA", (await db.EjecucionesProgramadas.SingleAsync(x => x.ProgramacionId == id)).Estado);
+            Assert.Empty(await db.Solicitudes.Where(x => x.TipoSolicitud == "RECURRENTE").ToListAsync());
+        }
+        Client.DefaultRequestHeaders.Authorization = null;
+    }
+
+    [Fact]
+    public void Siguiente_ejecucion_respeta_limites_UTC_y_ancla_mensual_al_dia_original()
+    {
+        var dailyStart = new DateTime(2026, 9, 27, 23, 59, 59, DateTimeKind.Utc);
+        var midnight = new DateTime(2026, 9, 28, 0, 0, 0, DateTimeKind.Utc);
+        var nextDaily = SolicitudProgramacionService.NextOccurrenceAtOrAfter(dailyStart, "DIARIA", midnight);
+        Assert.Equal(new DateTime(2026, 9, 28, 23, 59, 59), nextDaily);
+        var monthlyStart = new DateTime(2026, 1, 31, 10, 0, 0, DateTimeKind.Utc);
+        var afterFebruary = new DateTime(2026, 2, 28, 10, 0, 1, DateTimeKind.Utc);
+        var nextMonthly = SolicitudProgramacionService.NextOccurrenceAtOrAfter(monthlyStart, "MENSUAL", afterFebruary);
+        Assert.Equal(new DateTime(2026, 3, 31, 10, 0, 0), nextMonthly);
+        var leapStart = new DateTime(2024, 1, 31, 10, 0, 0, DateTimeKind.Utc);
+        Assert.Equal(new DateTime(2024, 2, 29, 10, 0, 0), SolicitudProgramacionService.NextOccurrenceAtOrAfter(leapStart, "MENSUAL", leapStart.AddTicks(1)));
+        var yearEnd = new DateTime(2026, 12, 31, 23, 59, 59, DateTimeKind.Utc);
+        Assert.Equal(new DateTime(2027, 1, 31, 23, 59, 59), SolicitudProgramacionService.NextOccurrenceAtOrAfter(yearEnd, "MENSUAL", yearEnd.AddSeconds(1)));
+    }
+
+    [Fact]
+    public async Task Programacion_pausada_no_ejecuta_y_reactivacion_calcula_desde_el_momento_actual()
+    {
+        await qa.ResetAsync();
+        _ = await LoginAsync("qa.schedule.pause", "SUPERVISOR");
+        var catalog = await SeedCatalogAsync();
+        var start = new DateTimeOffset(2026, 9, 27, 10, 0, 0, TimeSpan.Zero);
+        qa.Factory.Clock.SetUtcNow(start.AddMinutes(-10));
+        var create = await Client.PostAsJsonAsync("api/programaciones", new
+        {
+            tipoSolicitud = "RECURRENTE", empleadoId = catalog.EmployeeId, vehiculoId = catalog.VehicleId,
+            departamentoId = catalog.DepartmentId, tipoCombustibleId = catalog.FuelId,
+            cantidadSolicitadaGalones = 4m, fechaInicial = start, fechaFinal = (DateTimeOffset?)null, frecuencia = "SEMANAL"
+        });
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+        var id = (await create.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt64();
+        Assert.Equal(HttpStatusCode.OK, (await Client.PostAsync($"api/programaciones/{id}/desactivar", null)).StatusCode);
+        qa.Factory.Clock.SetUtcNow(start.AddDays(10));
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+            Assert.Equal(0, await scope.ServiceProvider.GetRequiredService<ISolicitudProgramacionProcessor>().ProcessDueAsync(CancellationToken.None));
+        var activated = await Client.PostAsync($"api/programaciones/{id}/activar", null);
+        Assert.Equal(HttpStatusCode.OK, activated.StatusCode);
+        var dto = await activated.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(start.AddDays(14).ToString("O"), dto.GetProperty("proximaEjecucion").GetDateTimeOffset().ToString("O"));
+        qa.Factory.Clock.SetUtcNow(start.AddDays(14));
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+            Assert.Equal(1, await scope.ServiceProvider.GetRequiredService<ISolicitudProgramacionProcessor>().ProcessDueAsync(CancellationToken.None));
+        var editedBody = new CrearProgramacionSolicitudRequest("RECURRENTE", catalog.EmployeeId, catalog.VehicleId,
+            catalog.DepartmentId, catalog.FuelId, 6m, start.AddDays(12), null, "SEMANAL");
+        Assert.Equal(HttpStatusCode.OK, (await Client.PutAsJsonAsync($"api/programaciones/{id}", editedBody)).StatusCode);
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+            Assert.Equal(4m, (await db.Solicitudes.SingleAsync(x => x.TipoSolicitud == "RECURRENTE")).CantidadSolicitadaGalones);
+            Assert.Equal(6m, (await db.ProgramacionesSolicitud.SingleAsync(x => x.Id == id)).CantidadSolicitadaGalones);
+            Assert.Contains(await db.Auditoria.ToListAsync(), x => x.Accion == "PROGRAMACION_DESACTIVADA");
+            Assert.Contains(await db.Auditoria.ToListAsync(), x => x.Accion == "PROGRAMACION_ACTIVADA");
+            Assert.Contains(await db.Auditoria.ToListAsync(), x => x.Accion == "PROGRAMACION_MODIFICADA");
+        }
+        Client.DefaultRequestHeaders.Authorization = null;
+    }
+
+    [Fact]
+    public async Task Fallo_de_auditoria_revierte_solicitud_historial_y_proxima_ejecucion_programada()
+    {
+        await qa.ResetAsync();
+        _ = await LoginAsync("qa.schedule.rollback", "ADMINISTRADOR");
+        var catalog = await SeedCatalogAsync();
+        var start = new DateTimeOffset(2026, 9, 27, 10, 0, 0, TimeSpan.Zero);
+        qa.Factory.Clock.SetUtcNow(start.AddMinutes(-1));
+        var create = await Client.PostAsJsonAsync("api/programaciones", new
+        {
+            tipoSolicitud = "AUTOMATICA", empleadoId = catalog.EmployeeId, vehiculoId = catalog.VehicleId,
+            departamentoId = catalog.DepartmentId, tipoCombustibleId = catalog.FuelId,
+            cantidadSolicitadaGalones = 5m, fechaInicial = start, fechaFinal = (DateTimeOffset?)null, frecuencia = (string?)null
+        });
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+        var id = (await create.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt64();
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+            await db.Database.ExecuteSqlRawAsync("""
+                CREATE OR REPLACE FUNCTION qa_reject_schedule_audit() RETURNS TRIGGER AS $$
+                BEGIN IF NEW.accion = 'SOLICITUD_AUTOMATICA_GENERADA' THEN RAISE EXCEPTION 'forced scheduler audit failure'; END IF; RETURN NEW; END;
+                $$ LANGUAGE plpgsql;
+                CREATE TRIGGER qa_reject_schedule_audit BEFORE INSERT ON auditoria FOR EACH ROW EXECUTE FUNCTION qa_reject_schedule_audit();
+                """);
+        }
+        qa.Factory.Clock.SetUtcNow(start);
+        try
+        {
+            await using var scope = qa.Factory.Services.CreateAsyncScope();
+            var processor = scope.ServiceProvider.GetRequiredService<ISolicitudProgramacionProcessor>();
+            await Assert.ThrowsAnyAsync<Exception>(() => processor.ProcessDueAsync(CancellationToken.None));
+        }
+        finally
+        {
+            await using var scope = qa.Factory.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+            await db.Database.ExecuteSqlRawAsync("DROP TRIGGER IF EXISTS qa_reject_schedule_audit ON auditoria; DROP FUNCTION IF EXISTS qa_reject_schedule_audit();");
+        }
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+            var program = await db.ProgramacionesSolicitud.SingleAsync(x => x.Id == id);
+            Assert.True(program.Activa);
+            Assert.Equal(start.UtcDateTime, DateTime.SpecifyKind(program.ProximaEjecucion!.Value, DateTimeKind.Utc));
+            Assert.Empty(await db.EjecucionesProgramadas.ToListAsync());
+            Assert.Empty(await db.Solicitudes.Where(x => x.TipoSolicitud == "AUTOMATICA").ToListAsync());
+        }
+        Client.DefaultRequestHeaders.Authorization = null;
     }
 
     [Fact]

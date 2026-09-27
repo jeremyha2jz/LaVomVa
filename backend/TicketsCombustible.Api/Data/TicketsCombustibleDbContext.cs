@@ -12,6 +12,8 @@ public class TicketsCombustibleDbContext(DbContextOptions<TicketsCombustibleDbCo
     public DbSet<Tanque> Tanques => Set<Tanque>();
     public DbSet<Estacion> Estaciones => Set<Estacion>();
     public DbSet<SolicitudCombustible> Solicitudes => Set<SolicitudCombustible>();
+    public DbSet<ProgramacionSolicitud> ProgramacionesSolicitud => Set<ProgramacionSolicitud>();
+    public DbSet<EjecucionProgramada> EjecucionesProgramadas => Set<EjecucionProgramada>();
     public DbSet<Ticket> Tickets => Set<Ticket>();
     public DbSet<EnvioTicket> EnviosTicket => Set<EnvioTicket>();
     public DbSet<Despacho> Despachos => Set<Despacho>();
@@ -34,6 +36,17 @@ public class TicketsCombustibleDbContext(DbContextOptions<TicketsCombustibleDbCo
         modelBuilder.Entity<Tanque>().ToTable("tanques").HasKey(x => x.Id);
         modelBuilder.Entity<Estacion>().ToTable("estaciones").HasKey(x => x.Id);
         modelBuilder.Entity<SolicitudCombustible>().ToTable("solicitudes_combustible").HasKey(x => x.Id);
+        modelBuilder.Entity<ProgramacionSolicitud>().ToTable("programaciones_solicitud").HasKey(x => x.Id);
+        modelBuilder.Entity<ProgramacionSolicitud>().Property(x => x.CantidadSolicitadaGalones).HasPrecision(10, 2);
+        modelBuilder.Entity<ProgramacionSolicitud>().Property(x => x.FechaInicial).HasColumnType("timestamp without time zone");
+        modelBuilder.Entity<ProgramacionSolicitud>().Property(x => x.FechaFinal).HasColumnType("timestamp without time zone");
+        modelBuilder.Entity<ProgramacionSolicitud>().Property(x => x.ProximaEjecucion).HasColumnType("timestamp without time zone");
+        modelBuilder.Entity<ProgramacionSolicitud>().Property(x => x.UltimaEjecucion).HasColumnType("timestamp without time zone");
+        modelBuilder.Entity<ProgramacionSolicitud>().Property(x => x.CreadoEn).HasColumnType("timestamp without time zone");
+        modelBuilder.Entity<ProgramacionSolicitud>().Property(x => x.ActualizadoEn).HasColumnType("timestamp without time zone");
+        modelBuilder.Entity<EjecucionProgramada>().ToTable("ejecuciones_programadas").HasKey(x => x.Id);
+        modelBuilder.Entity<EjecucionProgramada>().Property(x => x.FechaProgramada).HasColumnType("timestamp without time zone");
+        modelBuilder.Entity<EjecucionProgramada>().Property(x => x.EjecutadaEn).HasColumnType("timestamp without time zone");
         modelBuilder.Entity<Ticket>().ToTable("tickets").HasKey(x => x.Id);
         modelBuilder.Entity<EnvioTicket>().ToTable("envios_ticket").HasKey(x => x.Id);
         modelBuilder.Entity<EnvioTicket>().Property(x => x.SolicitadoEn).HasColumnType("timestamp without time zone");
