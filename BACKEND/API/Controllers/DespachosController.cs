@@ -73,7 +73,7 @@ public class DespachosController(TicketsCombustibleDbContext db, IMemoryCache ca
             pg.SqlState == PostgresErrorCodes.RaiseException &&
             (pg.MessageText.StartsWith("Inventario insuficiente", StringComparison.Ordinal) || pg.MessageText.StartsWith("El día operacional ya está cerrado", StringComparison.Ordinal)))
         {
-            return Conflict(pg.MessageText);
+            return Conflict(new ApiErrorResponse(pg.MessageText));
         }
         catch (DbUpdateException ex) when (ex.InnerException is PostgresException pg &&
             pg.SqlState == PostgresErrorCodes.RaiseException && pg.MessageText.StartsWith("Transición inválida de ticket", StringComparison.Ordinal))

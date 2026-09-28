@@ -24,17 +24,17 @@ public class AuthController(
     {
         NoStore();
         if (string.IsNullOrWhiteSpace(request.Usuario) || request.Usuario.Length > 80 || string.IsNullOrEmpty(request.Contrasena) || request.Contrasena.Length > 256)
-            return Unauthorized(new { mensaje = "Usuario o contraseña incorrectos" });
+            return Unauthorized(new ApiErrorResponse("Usuario o contraseña incorrectos"));
         var usuario = await db.Usuarios.SingleOrDefaultAsync(x => x.NombreUsuario == request.Usuario);
         if (usuario is null || !VerificarHash(request.Contrasena, usuario.PasswordHash))
         {
             await auditoria.RegistrarAsync("LOGIN", "USUARIO", usuario?.Id.ToString() ?? request.Usuario.Trim(), "FALLO", detalle: "Credenciales inválidas.", usuarioId: usuario?.Id);
-            return Unauthorized(new { mensaje = "Usuario o contraseña incorrectos" });
+            return Unauthorized(new ApiErrorResponse("Usuario o contraseña incorrectos"));
         }
         if (!usuario.Activo)
         {
             await auditoria.RegistrarAsync("LOGIN", "USUARIO", usuario.Id.ToString(), "FALLO", detalle: "Cuenta inactiva.", usuarioId: usuario.Id);
-            return StatusCode(403, new { mensaje = "La cuenta espera activación o está desactivada." });
+            return StatusCode(403, new ApiErrorResponse("La cuenta espera activación o está desactivada."));
         }
         var roles = await CurrentRoles(usuario.Id);
         await using var transaction = await db.Database.BeginTransactionAsync();
@@ -50,7 +50,7 @@ public class AuthController(
         NoStore();
         var result = await sessions.RefreshAsync(request.RefreshToken);
         if (result.Status != RefreshStatus.Success || result.Pair is null)
-            return Unauthorized(new { mensaje = "La sesión no es válida. Inicia sesión nuevamente." });
+            return Unauthorized(new ApiErrorResponse("La sesión no es válida. Inicia sesión nuevamente."));
         return Ok(new { token = result.Pair.Token, refreshToken = result.Pair.RefreshToken, expiresAt = result.Pair.ExpiresAt });
     }
 
@@ -77,10 +77,10 @@ public class AuthController(
     {
         if (!CurrentUserId(out var id)) return Unauthorized();
         if (request.NuevaContrasena.Length < 12 || request.NuevaContrasena.Length > 256)
-            return BadRequest(new { mensaje = "La contraseña nueva debe tener entre 12 y 256 caracteres." });
+            return BadRequest(new ApiErrorResponse("La contraseña nueva debe tener entre 12 y 256 caracteres."));
         var usuario = await db.Usuarios.SingleOrDefaultAsync(x => x.Id == id && x.Activo);
         if (usuario is null || !VerificarHash(request.ContrasenaActual, usuario.PasswordHash))
-            return BadRequest(new { mensaje = "No se pudo cambiar la contraseña." });
+            return BadRequest(new ApiErrorResponse("No se pudo cambiar la contraseña."));
         await using var transaction = await db.Database.BeginTransactionAsync();
         usuario.PasswordHash = CrearHash(request.NuevaContrasena);
         await db.SaveChangesAsync();
@@ -98,11 +98,11 @@ public class AuthController(
         var nombre = request.NombreCompleto.Trim();
         if (nombreUsuario.Length is < 3 or > 80 || nombre.Length is < 3 or > 150 || request.Contrasena.Length is < 12 or > 256 ||
             !System.Net.Mail.MailAddress.TryCreate(correo, out var address) || address.Address != correo)
-            return BadRequest(new { mensaje = "Indica usuario, nombre y correo válidos y una contraseña de al menos 12 caracteres." });
+            return BadRequest(new ApiErrorResponse("Indica usuario, nombre y correo válidos y una contraseña de al menos 12 caracteres."));
         if (await db.Usuarios.AnyAsync(x => x.NombreUsuario == nombreUsuario || x.Correo == correo))
-            return Conflict(new { mensaje = "El usuario o correo ya existe." });
+            return Conflict(new ApiErrorResponse("El usuario o correo ya existe."));
         var rol = await db.Roles.SingleOrDefaultAsync(x => x.Nombre == "CONSULTA" && x.Activo);
-        if (rol is null) return Problem("El rol CONSULTA debe existir antes de permitir registros.");
+        if (rol is null) return StatusCode(StatusCodes.Status500InternalServerError, new ApiErrorResponse("El rol CONSULTA debe existir antes de permitir registros."));
         var usuario = new Usuario { NombreUsuario = nombreUsuario, Correo = correo, NombreCompleto = nombre, Activo = false, PasswordHash = CrearHash(request.Contrasena) };
         await using var transaction = await db.Database.BeginTransactionAsync();
         db.Usuarios.Add(usuario);
@@ -125,13 +125,13 @@ public class AuthController(
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted);
         await db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(540198217654321)");
         if (await db.UsuarioRoles.Join(db.Roles, x => x.RolId, x => x.Id, (ur, role) => new { ur, role }).AnyAsync(x => x.role.Nombre == "ADMINISTRADOR"))
-            return Conflict(new { mensaje = "Ya existe un administrador." });
+            return Conflict(new ApiErrorResponse("Ya existe un administrador."));
         var rolAdmin = await db.Roles.SingleOrDefaultAsync(x => x.Nombre == "ADMINISTRADOR" && x.Activo);
-        if (rolAdmin is null) return Problem("El rol ADMINISTRADOR debe existir.");
+        if (rolAdmin is null) return StatusCode(StatusCodes.Status500InternalServerError, new ApiErrorResponse("El rol ADMINISTRADOR debe existir."));
         if (request.Usuario.Trim().Length is < 3 or > 80 || request.NombreCompleto.Trim().Length is < 3 or > 150 || request.Contrasena.Length is < 12 or > 256 ||
-            !System.Net.Mail.MailAddress.TryCreate(request.Correo.Trim(), out _)) return BadRequest(new { mensaje = "Datos de cuenta inválidos." });
+            !System.Net.Mail.MailAddress.TryCreate(request.Correo.Trim(), out _)) return BadRequest(new ApiErrorResponse("Datos de cuenta inválidos."));
         var nombreUsuario = request.Usuario.Trim(); var correo = request.Correo.Trim().ToLowerInvariant();
-        if (await db.Usuarios.AnyAsync(x => x.NombreUsuario == nombreUsuario || x.Correo == correo)) return Conflict(new { mensaje = "Usuario o correo existente." });
+        if (await db.Usuarios.AnyAsync(x => x.NombreUsuario == nombreUsuario || x.Correo == correo)) return Conflict(new ApiErrorResponse("Usuario o correo existente."));
         var usuario = new Usuario { NombreUsuario = nombreUsuario, Correo = correo, NombreCompleto = request.NombreCompleto.Trim(), PasswordHash = CrearHash(request.Contrasena) };
         db.Usuarios.Add(usuario); await db.SaveChangesAsync();
         db.UsuarioRoles.Add(new UsuarioRol { UsuarioId = usuario.Id, RolId = rolAdmin.Id }); await db.SaveChangesAsync();

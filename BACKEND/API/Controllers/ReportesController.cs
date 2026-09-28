@@ -31,7 +31,7 @@ public sealed class ReportesController(ReportesService reportes) : ControllerBas
                 vehiculoId, estado, estacionId, pagina, tamanoPagina);
             return Ok(await reportes.ConsultarAsync(filtros, ct: cancellationToken));
         }
-        catch (ReporteFiltroException ex) { return StatusCode(ex.StatusCode, new { mensaje = ex.Message }); }
+        catch (ReporteFiltroException ex) { return StatusCode(ex.StatusCode, new ApiErrorResponse(ex.Message)); }
     }
 
     [HttpGet("exportar")]
@@ -49,7 +49,7 @@ public sealed class ReportesController(ReportesService reportes) : ControllerBas
         CancellationToken cancellationToken = default)
     {
         if (formato is not ("csv" or "xlsx" or "pdf"))
-            return BadRequest(new { mensaje = "El formato debe ser csv, xlsx o pdf." });
+            return BadRequest(new ApiErrorResponse("El formato debe ser csv, xlsx o pdf."));
         try
         {
             var filtros = new ReporteFiltros(tipo, desde, hasta, departamentoId, combustibleId, empleadoId,
@@ -64,6 +64,6 @@ public sealed class ReportesController(ReportesService reportes) : ControllerBas
             var stamp = report.GeneradoEnUtc.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
             return File(file.Item1, file.Item2, $"reporte-{report.Tipo}-{stamp}.{formato}");
         }
-        catch (ReporteFiltroException ex) { return StatusCode(ex.StatusCode, new { mensaje = ex.Message }); }
+        catch (ReporteFiltroException ex) { return StatusCode(ex.StatusCode, new ApiErrorResponse(ex.Message)); }
     }
 }

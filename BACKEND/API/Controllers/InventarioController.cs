@@ -54,7 +54,7 @@ public class InventarioController(TicketsCombustibleDbContext db, IAuditoriaServ
             pg.SqlState == PostgresErrorCodes.RaiseException &&
             (pg.MessageText.StartsWith("Inventario insuficiente", StringComparison.Ordinal) || pg.MessageText.StartsWith("El movimiento excede la capacidad", StringComparison.Ordinal) || pg.MessageText.StartsWith("El día operacional ya está cerrado", StringComparison.Ordinal)))
         {
-            return Conflict(pg.MessageText);
+            return Conflict(new ApiErrorResponse(pg.MessageText));
         }
         await realtime.PublishMovementAsync(movimiento.Id);
         return Created($"api/inventario/movimientos/{movimiento.Id}", movimiento);

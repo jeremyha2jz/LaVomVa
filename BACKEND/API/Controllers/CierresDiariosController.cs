@@ -24,27 +24,27 @@ public sealed class CierresDiariosController(
     [HttpGet("resumen")]
     public async Task<IActionResult> Resumen([FromQuery] long estacionId, [FromQuery] DateOnly fecha, CancellationToken cancellationToken)
     {
-        if (estacionId <= 0) return BadRequest("Debe indicar una estación válida.");
-        if (fecha > HoyUtc()) return BadRequest("No se puede cerrar un día operacional futuro.");
+        if (estacionId <= 0) return BadRequest(new ApiErrorResponse("Debe indicar una estación válida."));
+        if (fecha > HoyUtc()) return BadRequest(new ApiErrorResponse("No se puede cerrar un día operacional futuro."));
         try
         {
             var resumen = await cierres.CalcularAsync(estacionId, fecha, cancellationToken);
-            if (resumen is null) return NotFound("Estación no encontrada.");
+            if (resumen is null) return NotFound(new ApiErrorResponse("Estación no encontrada."));
             var cierre = await db.CierresDiarios.AsNoTracking().SingleOrDefaultAsync(x => x.EstacionId == estacionId && x.Fecha == fecha, cancellationToken);
             return Ok(new { resumen, cerrado = cierre is not null, cierre });
         }
-        catch (CierreIntegridadException ex) { return Conflict(ex.Message); }
+        catch (CierreIntegridadException ex) { return Conflict(new ApiErrorResponse(ex.Message)); }
     }
 
     [HttpPost]
     [Authorize(Roles = "ADMINISTRADOR,SUPERVISOR,DESPACHADOR")]
     public async Task<IActionResult> Crear(CrearCierreDiarioRequest request, CancellationToken cancellationToken)
     {
-        if (request.EstacionId <= 0) return BadRequest("Debe indicar una estación válida.");
-        if (request.Fecha > HoyUtc()) return BadRequest("No se puede cerrar un día operacional futuro.");
-        if (request.Observaciones?.Length > 2000) return BadRequest("Las observaciones no pueden superar 2000 caracteres.");
+        if (request.EstacionId <= 0) return BadRequest(new ApiErrorResponse("Debe indicar una estación válida."));
+        if (request.Fecha > HoyUtc()) return BadRequest(new ApiErrorResponse("No se puede cerrar un día operacional futuro."));
+        if (request.Observaciones?.Length > 2000) return BadRequest(new ApiErrorResponse("Las observaciones no pueden superar 2000 caracteres."));
         if (!long.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var actorId)) return Unauthorized();
-        if (request.InventariosFisicos is null) return BadRequest("Debe incluir los inventarios físicos por tanque.");
+        if (request.InventariosFisicos is null) return BadRequest(new ApiErrorResponse("Debe incluir los inventarios físicos por tanque."));
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         try
@@ -53,25 +53,25 @@ public sealed class CierresDiariosController(
             // is included in the snapshot; later movements are rejected by the closed-day trigger.
             var station = await db.Estaciones.FromSqlInterpolated($"SELECT * FROM estaciones WHERE id_estacion = {request.EstacionId} FOR UPDATE")
                 .SingleOrDefaultAsync(cancellationToken);
-            if (station is null || !station.Activo) return NotFound("Estación no encontrada o inactiva.");
+            if (station is null || !station.Activo) return NotFound(new ApiErrorResponse("Estación no encontrada o inactiva."));
             if (await db.CierresDiarios.AnyAsync(x => x.EstacionId == request.EstacionId && x.Fecha == request.Fecha, cancellationToken))
-                return Conflict("Ya existe un cierre para esa estación y fecha.");
+                return Conflict(new ApiErrorResponse("Ya existe un cierre para esa estación y fecha."));
 
             var resumen = await cierres.CalcularAsync(request.EstacionId, request.Fecha, cancellationToken);
-            if (resumen is null) return NotFound("Estación no encontrada.");
+            if (resumen is null) return NotFound(new ApiErrorResponse("Estación no encontrada."));
             var fisicos = request.InventariosFisicos;
-            if (fisicos.GroupBy(x => x.TanqueId).Any(x => x.Count() > 1)) return BadRequest("No repita tanques en el inventario físico.");
+            if (fisicos.GroupBy(x => x.TanqueId).Any(x => x.Count() > 1)) return BadRequest(new ApiErrorResponse("No repita tanques en el inventario físico."));
             if (fisicos.Count != resumen.Tanques.Count || fisicos.Any(x => x.InventarioFisicoGalones is null))
-                return BadRequest("Debe informar el inventario físico de cada tanque de la estación.");
+                return BadRequest(new ApiErrorResponse("Debe informar el inventario físico de cada tanque de la estación."));
             if (!resumen.Tanques.Select(x => x.TanqueId).Order().SequenceEqual(fisicos.Select(x => x.TanqueId).Order()))
-                return BadRequest("Los tanques físicos deben pertenecer a la estación seleccionada.");
+                return BadRequest(new ApiErrorResponse("Los tanques físicos deben pertenecer a la estación seleccionada."));
 
             var physicalByTank = fisicos.ToDictionary(x => x.TanqueId, x => x.InventarioFisicoGalones!.Value);
             foreach (var tank in resumen.Tanques)
             {
                 var physical = physicalByTank[tank.TanqueId];
                 if (physical < 0 || physical > tank.CapacidadGalones || decimal.Round(physical, 2) != physical)
-                    return BadRequest($"El inventario físico de {tank.Codigo} debe estar entre 0 y su capacidad ({tank.CapacidadGalones:0.00}) con precisión de hasta 2 decimales.");
+                    return BadRequest(new ApiErrorResponse($"El inventario físico de {tank.Codigo} debe estar entre 0 y su capacidad ({tank.CapacidadGalones:0.00}) con precisión de hasta 2 decimales."));
             }
 
             var physicalTotal = physicalByTank.Values.Sum();
@@ -129,11 +129,11 @@ public sealed class CierresDiariosController(
             await transaction.CommitAsync(cancellationToken);
             return CreatedAtAction(nameof(Obtener), new { id }, cierre);
         }
-        catch (CierreIntegridadException ex) { return Conflict(ex.Message); }
+        catch (CierreIntegridadException ex) { return Conflict(new ApiErrorResponse(ex.Message)); }
         catch (DbUpdateException ex) when (ex.InnerException is PostgresException pg &&
             pg.SqlState == PostgresErrorCodes.UniqueViolation && pg.ConstraintName == "uq_cierre_estacion_fecha")
         {
-            return Conflict("Ya existe un cierre para esa estación y fecha.");
+            return Conflict(new ApiErrorResponse("Ya existe un cierre para esa estación y fecha."));
         }
         catch (DbUpdateException ex) when (ex.InnerException is PostgresException pg && pg.SqlState == PostgresErrorCodes.RaiseException)
         {
@@ -146,7 +146,7 @@ public sealed class CierresDiariosController(
     public async Task<IActionResult> Listar([FromQuery] DateOnly? desde, [FromQuery] DateOnly? hasta,
         [FromQuery] long? estacionId, [FromQuery] long? usuarioId, CancellationToken cancellationToken)
     {
-        if (desde.HasValue && hasta.HasValue && desde > hasta) return BadRequest("La fecha inicial no puede ser posterior a la final.");
+        if (desde.HasValue && hasta.HasValue && desde > hasta) return BadRequest(new ApiErrorResponse("La fecha inicial no puede ser posterior a la final."));
         var query = db.CierresDiarios.AsNoTracking().AsQueryable();
         if (desde.HasValue) query = query.Where(x => x.Fecha >= desde.Value);
         if (hasta.HasValue) query = query.Where(x => x.Fecha <= hasta.Value);
@@ -161,14 +161,14 @@ public sealed class CierresDiariosController(
     public async Task<IActionResult> Obtener(long id, CancellationToken cancellationToken)
     {
         var cierre = await db.CierresDiarios.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
-        return cierre is null ? NotFound() : Ok(cierre);
+        return cierre is null ? NotFound(new ApiErrorResponse("Cierre no encontrado.")) : Ok(cierre);
     }
 
     [HttpGet("{id:long}/pdf")]
     public async Task<IActionResult> Pdf(long id, CancellationToken cancellationToken)
     {
         var cierre = await db.CierresDiarios.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
-        if (cierre is null) return NotFound("Cierre no encontrado.");
+        if (cierre is null) return NotFound(new ApiErrorResponse("Cierre no encontrado."));
         var estacion = await db.Estaciones.AsNoTracking().Where(x => x.Id == cierre.EstacionId).Select(x => x.Nombre).SingleAsync(cancellationToken);
         var responsable = await db.Usuarios.AsNoTracking().Where(x => x.Id == cierre.UsuarioCierreId).Select(x => x.NombreCompleto).SingleAsync(cancellationToken);
         var pdf = PdfActaCierreGenerator.Generar(cierre, estacion, responsable);

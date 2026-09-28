@@ -99,7 +99,11 @@ if (trustedProxies.Length > 0)
     });
 }
 builder.Services.AddControllers()
-    .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()))
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+        options.JsonSerializerOptions.Converters.Add(new IpAddressJsonConverter());
+    })
     .ConfigureApiBehaviorOptions(options =>
     options.InvalidModelStateResponseFactory = context =>
     {
@@ -124,6 +128,19 @@ app.UseExceptionHandler(errorApp => errorApp.Run(async context =>
     context.Response.StatusCode = StatusCodes.Status500InternalServerError;
     await context.Response.WriteAsJsonAsync(new ApiErrorResponse("Ocurrió un error interno al procesar la solicitud."));
 }));
+// Va antes de autenticación/autorización para que sus 401/403 también salgan como ApiErrorResponse.
+app.UseStatusCodePages(async statusContext =>
+{
+    var response = statusContext.HttpContext.Response;
+    var mensaje = response.StatusCode switch
+    {
+        StatusCodes.Status404NotFound => "No se encontró el recurso solicitado.",
+        StatusCodes.Status401Unauthorized => "No está autorizado para realizar esta acción.",
+        StatusCodes.Status403Forbidden => "No tiene permisos para realizar esta acción.",
+        _ => "La solicitud no pudo procesarse."
+    };
+    await response.WriteAsJsonAsync(new ApiErrorResponse(mensaje));
+});
 app.Use(async (context, next) =>
 {
     context.Response.Headers["X-Content-Type-Options"] = "nosniff";
@@ -141,18 +158,6 @@ if (!app.Environment.IsDevelopment() && !app.Environment.IsEnvironment("Testing"
 app.UseCors("pwa");
 app.UseAuthentication();
 app.UseAuthorization();
-app.UseStatusCodePages(async statusContext =>
-{
-    var response = statusContext.HttpContext.Response;
-    var mensaje = response.StatusCode switch
-    {
-        StatusCodes.Status404NotFound => "No se encontró el recurso solicitado.",
-        StatusCodes.Status401Unauthorized => "No está autorizado para realizar esta acción.",
-        StatusCodes.Status403Forbidden => "No tiene permisos para realizar esta acción.",
-        _ => "La solicitud no pudo procesarse."
-    };
-    await response.WriteAsJsonAsync(new ApiErrorResponse(mensaje));
-});
 app.MapControllers();
 app.MapHub<InventoryHub>("/hubs/inventory");
 app.Run();

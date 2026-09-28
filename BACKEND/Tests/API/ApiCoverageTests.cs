@@ -970,7 +970,7 @@ public sealed class ApiCoverageTests(QaFixture qa)
         }
         try
         {
-            await Assert.ThrowsAsync<DbUpdateException>(() => Client.PostAsJsonAsync("api/inventario/ajustes", new { tanqueId = catalog.TankId, tipo = "AJUSTE_NEGATIVO", cantidadGalones = 2m, motivo = "Rollback", usuarioId = actor.Id }));
+            await AssertErrorInternoAsync(Client.PostAsJsonAsync("api/inventario/ajustes", new { tanqueId = catalog.TankId, tipo = "AJUSTE_NEGATIVO", cantidadGalones = 2m, motivo = "Rollback", usuarioId = actor.Id }));
             Assert.Empty(sink.Events);
             Assert.Equal(11m, await TankStockAsync(catalog.TankId));
         }
@@ -1799,7 +1799,7 @@ public sealed class ApiCoverageTests(QaFixture qa)
         try
         {
             var key = Guid.NewGuid();
-            await Assert.ThrowsAsync<DbUpdateException>(() => Client.PostAsJsonAsync($"api/tickets/{issued.Id}/enviar", new { canal = "EMAIL", idempotencyKey = key }));
+            await AssertErrorInternoAsync(Client.PostAsJsonAsync($"api/tickets/{issued.Id}/enviar", new { canal = "EMAIL", idempotencyKey = key }));
             Assert.Single(qa.Factory.EmailFake.Sent);
             var replay = await Client.PostAsJsonAsync($"api/tickets/{issued.Id}/enviar", new { canal = "EMAIL", idempotencyKey = key });
             Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
@@ -2358,7 +2358,7 @@ public sealed class ApiCoverageTests(QaFixture qa)
         }
         try
         {
-            await Assert.ThrowsAsync<DbUpdateException>(() => Client.PostAsJsonAsync("api/inventario/ajustes", new { tanqueId = catalog.TankId, tipo = "AJUSTE_NEGATIVO", cantidadGalones = 6m, motivo = "Rollback QA", usuarioId = admin.Id }));
+            await AssertErrorInternoAsync(Client.PostAsJsonAsync("api/inventario/ajustes", new { tanqueId = catalog.TankId, tipo = "AJUSTE_NEGATIVO", cantidadGalones = 6m, motivo = "Rollback QA", usuarioId = admin.Id }));
             await using var verify = qa.Factory.Services.CreateAsyncScope();
             var db = verify.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
             Assert.Equal(10m, await db.Tanques.Where(x => x.Id == catalog.TankId).Select(x => x.ExistenciaActualGalones).SingleAsync());
@@ -2568,6 +2568,15 @@ public sealed class ApiCoverageTests(QaFixture qa)
             ticketId = ticket.Id.ToString(), galonesServidos = gallons, tanqueId = catalog.TankId, identidadConfirmada = true
         });
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    // El manejador global de errores convierte las excepciones no controladas en un 500 con ApiErrorResponse.
+    private static async Task AssertErrorInternoAsync(Task<HttpResponseMessage> request)
+    {
+        var response = await request;
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Ocurrió un error interno al procesar la solicitud.", body.GetProperty("mensaje").GetString());
     }
 
     private async Task<(long Id, string Token)> LoginAsync(string username, string role)

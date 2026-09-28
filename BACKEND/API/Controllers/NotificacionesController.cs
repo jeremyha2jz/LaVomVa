@@ -19,8 +19,8 @@ public sealed class NotificacionesController(TicketsCombustibleDbContext db, Tim
         [FromQuery] int tamano = 30, CancellationToken cancellationToken = default)
     {
         if (!TryUserId(out var userId)) return Unauthorized();
-        if (pagina < 1 || tamano is < 1 or > 100) return BadRequest("La página debe ser positiva y el tamaño debe estar entre 1 y 100.");
-        if (desde.HasValue && hasta.HasValue && desde > hasta) return BadRequest("El rango de fechas no es válido.");
+        if (pagina < 1 || tamano is < 1 or > 100) return BadRequest(new ApiErrorResponse("La página debe ser positiva y el tamaño debe estar entre 1 y 100."));
+        if (desde.HasValue && hasta.HasValue && desde > hasta) return BadRequest(new ApiErrorResponse("El rango de fechas no es válido."));
         var query = db.Notificaciones.AsNoTracking().Where(x => x.UsuarioId == userId);
         if (!string.IsNullOrWhiteSpace(tipo)) query = query.Where(x => x.Tipo == tipo);
         if (leida.HasValue) query = query.Where(x => (x.Estado == "LEIDA") == leida.Value);
@@ -50,7 +50,7 @@ public sealed class NotificacionesController(TicketsCombustibleDbContext db, Tim
     {
         if (!TryUserId(out var userId)) return Unauthorized();
         var row = await db.Notificaciones.SingleOrDefaultAsync(x => x.Id == id && x.UsuarioId == userId, cancellationToken);
-        if (row is null) return NotFound("Notificación no encontrada.");
+        if (row is null) return NotFound(new ApiErrorResponse("Notificación no encontrada."));
         if (row.Estado != "LEIDA")
         {
             row.Estado = "LEIDA";

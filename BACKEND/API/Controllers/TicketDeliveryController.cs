@@ -27,7 +27,7 @@ public sealed class TicketDeliveryController(
     [HttpGet("{id:guid}/envios")]
     public async Task<IActionResult> Historial(Guid id, CancellationToken cancellationToken)
     {
-        if (!await db.Tickets.AsNoTracking().AnyAsync(x => x.Id == id, cancellationToken)) return NotFound("Ticket no encontrado.");
+        if (!await db.Tickets.AsNoTracking().AnyAsync(x => x.Id == id, cancellationToken)) return NotFound(new ApiErrorResponse("Ticket no encontrado."));
         var rows = await delivery.HistoryAsync(id, cancellationToken);
         return Ok(rows.Select(x => new
         {
@@ -45,9 +45,9 @@ public sealed class TicketDeliveryController(
         {
             return Ok(await delivery.ReconcileAsync(id, envioId, request.Estado, actorId, cancellationToken));
         }
-        catch (TicketDeliveryNotFound ex) { return NotFound(ex.Message); }
-        catch (TicketDeliveryInvalid ex) { return BadRequest(ex.Message); }
-        catch (TicketDeliveryConflict ex) { return Conflict(ex.Message); }
+        catch (TicketDeliveryNotFound ex) { return NotFound(new ApiErrorResponse(ex.Message)); }
+        catch (TicketDeliveryInvalid ex) { return BadRequest(new ApiErrorResponse(ex.Message)); }
+        catch (TicketDeliveryConflict ex) { return Conflict(new ApiErrorResponse(ex.Message)); }
     }
 
     [AllowAnonymous]
@@ -56,7 +56,7 @@ public sealed class TicketDeliveryController(
     {
         if (string.IsNullOrWhiteSpace(token) || token.Length > 128) return NotFound();
         var png = await delivery.PublicQrAsync(token, configuration["Qr:SigningSecret"], cancellationToken);
-        if (png is null) return NotFound("El QR no está disponible.");
+        if (png is null) return NotFound(new ApiErrorResponse("El QR no está disponible."));
         Response.Headers.CacheControl = "no-store";
         Response.Headers["Referrer-Policy"] = "no-referrer";
         return File(png, "image/png", "ticket-qr.png");
@@ -71,14 +71,14 @@ public sealed class TicketDeliveryController(
                 configuration["Qr:SigningSecret"], cancellationToken);
             return Ok(outcome);
         }
-        catch (TicketDeliveryNotFound ex) { return NotFound(ex.Message); }
-        catch (TicketDeliveryInvalid ex) { return BadRequest(ex.Message); }
-        catch (TicketDeliveryConflict ex) { return Conflict(ex.Message); }
+        catch (TicketDeliveryNotFound ex) { return NotFound(new ApiErrorResponse(ex.Message)); }
+        catch (TicketDeliveryInvalid ex) { return BadRequest(new ApiErrorResponse(ex.Message)); }
+        catch (TicketDeliveryConflict ex) { return Conflict(new ApiErrorResponse(ex.Message)); }
         catch (DbUpdateException ex) when (ex.InnerException is PostgresException pg &&
             (pg.SqlState == PostgresErrorCodes.UniqueViolation ||
              pg.SqlState == PostgresErrorCodes.RaiseException && pg.MessageText.StartsWith("Transición inválida de ticket", StringComparison.Ordinal)))
         {
-            return Conflict("Ya existe un envío pendiente o la transición del ticket cambió en otra solicitud.");
+            return Conflict(new ApiErrorResponse("Ya existe un envío pendiente o la transición del ticket cambió en otra solicitud."));
         }
     }
 }

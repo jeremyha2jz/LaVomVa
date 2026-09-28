@@ -25,9 +25,9 @@ public sealed class AuditoriaController(TicketsCombustibleDbContext db, IAuditor
         [FromQuery] int tamano = 50,
         CancellationToken cancellationToken = default)
     {
-        if (pagina < 1 || tamano is < 1 or > 100) return BadRequest("La página debe ser positiva y el tamaño debe estar entre 1 y 100.");
-        if (resultado is not null && resultado is not ("EXITO" or "FALLO")) return BadRequest("Resultado debe ser EXITO o FALLO.");
-        if (desde.HasValue && hasta.HasValue && desde > hasta) return BadRequest("El rango de fechas no es válido.");
+        if (pagina < 1 || tamano is < 1 or > 100) return BadRequest(new ApiErrorResponse("La página debe ser positiva y el tamaño debe estar entre 1 y 100."));
+        if (resultado is not null && resultado is not ("EXITO" or "FALLO")) return BadRequest(new ApiErrorResponse("Resultado debe ser EXITO o FALLO."));
+        if (desde.HasValue && hasta.HasValue && desde > hasta) return BadRequest(new ApiErrorResponse("El rango de fechas no es válido."));
 
         var query = db.Auditoria.AsNoTracking();
         if (!string.IsNullOrWhiteSpace(accion)) query = query.Where(x => x.Accion == accion);

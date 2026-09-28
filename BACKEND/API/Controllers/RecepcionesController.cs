@@ -69,7 +69,7 @@ public class RecepcionesController(TicketsCombustibleDbContext db, IAuditoriaSer
         catch (DbUpdateException ex) when (ex.InnerException is PostgresException pg && pg.SqlState == PostgresErrorCodes.RaiseException &&
             (pg.MessageText.StartsWith("Inventario insuficiente", StringComparison.Ordinal) || pg.MessageText.StartsWith("El movimiento excede la capacidad", StringComparison.Ordinal) || pg.MessageText.StartsWith("El día operacional ya está cerrado", StringComparison.Ordinal)))
         {
-            return Conflict(pg.MessageText);
+            return Conflict(new ApiErrorResponse(pg.MessageText));
         }
         foreach (var movementId in movementIds) await realtime.PublishMovementAsync(movementId);
         return Created($"api/recepciones/{recepcion.Id}", new { recepcion, request.Detalles });

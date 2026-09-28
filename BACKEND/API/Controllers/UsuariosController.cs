@@ -49,7 +49,7 @@ public class UsuariosController(TicketsCombustibleDbContext db, IAuditoriaServic
     public async Task<IActionResult> Editar(long id, EditarUsuarioRequest request)
     {
         var usuario = await db.Usuarios.FindAsync(id);
-        if (usuario is null) return NotFound();
+        if (usuario is null) return NotFound(new ApiErrorResponse("Usuario no encontrado."));
         if (string.IsNullOrWhiteSpace(request.NombreCompleto) || !System.Net.Mail.MailAddress.TryCreate(request.Correo, out _)) return BadRequest(new ApiErrorResponse("Nombre o correo inválido."));
         if (await db.Usuarios.AnyAsync(x => x.Id != id && x.Correo == request.Correo)) return Conflict(new ApiErrorResponse("El correo ya existe."));
         if (!await db.Roles.AnyAsync(x => x.Id == request.RolId && x.Activo)) return BadRequest(new ApiErrorResponse("Rol inválido."));
@@ -88,7 +88,7 @@ public class UsuariosController(TicketsCombustibleDbContext db, IAuditoriaServic
     {
         if (request.Contrasena.Length < 12) return BadRequest(new ApiErrorResponse("La contraseña debe tener al menos 12 caracteres."));
         var usuario = await db.Usuarios.FindAsync(id);
-        if (usuario is null) return NotFound();
+        if (usuario is null) return NotFound(new ApiErrorResponse("Usuario no encontrado."));
         await using var transaction = await db.Database.BeginTransactionAsync();
         usuario.PasswordHash = CrearHash(request.Contrasena);
         await db.SaveChangesAsync();
@@ -102,7 +102,7 @@ public class UsuariosController(TicketsCombustibleDbContext db, IAuditoriaServic
     public async Task<IActionResult> Desactivar(long id)
     {
         var usuario = await db.Usuarios.FindAsync(id);
-        if (usuario is null) return NotFound();
+        if (usuario is null) return NotFound(new ApiErrorResponse("Usuario no encontrado."));
         if (long.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var actorId) && actorId == id) return Conflict(new ApiErrorResponse("No puedes desactivar tu propia cuenta."));
         var anterior = Snapshot(usuario);
         await using var transaction = await db.Database.BeginTransactionAsync();
@@ -118,7 +118,7 @@ public class UsuariosController(TicketsCombustibleDbContext db, IAuditoriaServic
     public async Task<IActionResult> Activar(long id)
     {
         var usuario = await db.Usuarios.FindAsync(id);
-        if (usuario is null) return NotFound();
+        if (usuario is null) return NotFound(new ApiErrorResponse("Usuario no encontrado."));
         var anterior = Snapshot(usuario);
         await using var transaction = await db.Database.BeginTransactionAsync();
         usuario.Activo = true;
