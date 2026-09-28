@@ -8,7 +8,9 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run --coverage",
-    "test:all": "bash scripts/test-all.sh"
+    "test:all": "bash scripts/test-all.sh",
+    "test:e2e": "bash scripts/test-e2e.sh",
+    "test:security": "node --test scripts/security-config.test.mjs"
   },
   "dependencies": {
     "@microsoft/signalr": "8.0.7",
@@ -21,6 +23,7 @@
   },
   "devDependencies": {
     "@eslint/js": "latest",
+    "@playwright/test": "1.63.0",
     "@testing-library/jest-dom": "latest",
     "@testing-library/react": "latest",
     "@types/node": "latest",
@@ -32,6 +35,8 @@
     "eslint-plugin-react-refresh": "latest",
     "globals": "latest",
     "jsdom": "latest",
+    "pngjs": "7.0.0",
+    "qrcode": "1.5.4",
     "vitest": "latest"
   }
 }

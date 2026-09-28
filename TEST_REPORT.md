@@ -1,5 +1,64 @@
 # Informe de ejecución QA
 
+## Fase final RF-13 / RS-03 — PWA E2E y TLS / secretos
+
+Fecha: 2026-09-28. Se ejecutaron `pnpm test:all` y `pnpm test:e2e` con PostgreSQL temporal local. Las pruebas de navegador usaron Chromium, API/PWA locales y datos/secretos sintéticos. No hubo uso de producción, deploy, push, certificados productivos, dispositivos externos ni envíos reales de email/SMS.
+
+### Resultado de pruebas
+
+| Suite | Anterior | Nuevos | Total | Pasaron | Fallaron | Omitidos |
+|---|---:|---:|---:|---:|---:|---:|
+| Web (Vitest) | 53 | 0 | 53 | 53 | 0 | 0 |
+| PWA (Node test) | 18 | 4 | 22 | 22 | 0 | 0 |
+| Seguridad de configuración (Node test) | 0 | 4 | 4 | 4 | 0 | 0 |
+| API (xUnit + PostgreSQL) | 207 | 10 | 217 | 217 | 0 | 0 |
+| **`pnpm test:all`** | **278** | **18** | **296** | **296** | **0** | **0** |
+| Playwright E2E Chromium (ejecutado aparte) | 0 | 8 | 8 | 8 | 0 | 0 |
+| **Total único combinado** | **278** | **26** | **304** | **304** | **0** | **0** |
+
+Se conservaron los 278 casos previos. No se quitaron pruebas, no se debilitaron asserts y no se añadieron skips. Los 4 tests nuevos de PWA cubren la política del service worker; 4 pruebas verifican configuración y exposición de secretos; 10 casos API añaden validación de configuración segura y transporte TLS; y 8 escenarios recorren la PWA en Chromium.
+
+### Cobertura y builds
+
+| Área | Líneas | Ramas | Métodos |
+|---|---:|---:|---:|
+| API | **94.62%** | **78.93%** | **96.80% (544/562)** |
+| Web | **70.75%** | **51.21%** | 62.26% |
+| PWA | **90.95%** | **70.91%** | 94.12% |
+
+La API y las pruebas compilaron; también terminaron correctamente `pnpm build` web y build PWA. Los artefactos temporales de PostgreSQL y los servidores E2E se detuvieron y eliminaron mediante los traps de los scripts.
+
+### RF-13 — Aplicación móvil/PWA
+
+- Estado anterior: **PARTIAL**. Estado nuevo: **PASS**.
+- `pnpm test:e2e`: 8/8 con Playwright Chromium, viewport móvil 390×844. El QR es una imagen obtenida de un ticket creado por la API temporal, convertida a vídeo sintético Y4M que Chromium ofrece a la cámara; el flujo pasa por la UI de escaneo y la validación API.
+- Escenarios: credenciales incorrectas y válidas, logout/revocación de refresh, permiso de cámara concedido y denegado, QR válido/inválido/vencido/consumido, identidad confirmada, despacho persistido y verificación de ticket/stock/movimiento, inventario insuficiente, fallo de red, manifest/iconos/service worker y caché.
+- La PWA no cachea requests API, autenticados, escrituras ni orígenes externos; sus assets estáticos pueden servirse desde Cache API. `sw.test.js` verifica ambas políticas.
+- BUG-19 (etiquetas no asociadas a los campos del formulario de despacho) se corrigió y queda probado por `getByLabel` en E2E.
+
+### RS-03 — Cifrado y protección de secretos
+
+- Estado anterior: **PARTIAL**. Estado nuevo: **PASS** para configuración y controles verificables del repositorio; no se declara un hosting o despliegue TLS externo.
+- `SecurityConfiguration.Validate` exige `Jwt__Key` y `Qr__SigningSecret` privados, de al menos 32 bytes y sin placeholders. Fuera de Development también exige credencial de base de datos y una de estas opciones: Kestrel HTTPS con certificado montado externamente, o proxy con direcciones IP confiables explícitas. `X-Forwarded-Proto` solo se acepta mediante esa lista; HTTP se redirige a HTTPS y HSTS se emite sobre transporte seguro.
+- TestServer en entorno Production verifica el redirect a HTTPS y HSTS (`max-age=2592000`). La solicitud HSTS usa hostname sintético porque ASP.NET Core excluye `localhost` de ese encabezado. TestServer valida middleware/configuración; no demuestra terminación TLS en infraestructura externa.
+- Variables documentadas: `ConnectionStrings__TicketsCombustible`, `Jwt__Key`, `Qr__SigningSecret`, `Bootstrap__Secret`, `Smtp__*`, `Sms__*`, `TicketDelivery__PublicBaseUrl`, `Kestrel__Endpoints__Https__*` y `ReverseProxy__KnownProxies__*`. Las claves privadas/certificados y valores operacionales se cargan desde entorno/gestor de secretos y quedan excluidos de Git. Las `VITE_*` solo son configuración pública.
+- El escaneo automatizado no encontró claves PEM privadas, valores operacionales en appsettings/plantillas, secretos server-side en config frontend ni exclusiones Git ausentes. Las respuestas/errores de configuración nombran ajustes sin imprimir sus valores. Las regresiones existentes siguen verificando PBKDF2, HMAC-SHA-256 y persistencia hash-only de refresh.
+
+### Requisitos y matriz
+
+- RF-13: **PARTIAL → PASS** con E2E de navegador, cámara sintética y despacho persistido.
+- RS-03: **PARTIAL → PASS** con validación de secretos, TLS configurable para entornos no Development, tests HTTP→HTTPS/HSTS y revisión automatizada del repositorio.
+- `SRS_TEST_MATRIX.md`: **30 PASS, 0 PARTIAL, 0 NOT_TESTABLE, 0 NOT_IMPLEMENTED**. Esto representa alcance implementado y verificado localmente; no afirma despliegue público ni certificado productivo.
+- Bugs nuevos encontrados/corregidos: **1**, BUG-19 (asociación de labels). Pendientes nuevos: **0**.
+
+### Warnings restantes
+
+- Vitest **5.0.2** y `@vitest/coverage-v8` **5.0.1** muestran el aviso de versiones mixtas; las pruebas terminaron correctamente.
+- El build de proyecto de pruebas API muestra dos avisos EF1002 en SQL interpolado de fixtures existentes (`ApiCoverageTests.cs:2132–2133`); no son código productivo y no falló ninguna prueba.
+- Playwright muestra un aviso de entorno `NO_COLOR`/`FORCE_COLOR`; no afecta el resultado.
+
+Comandos finales: `pnpm test:all` — **296 passed, 0 failed, 0 skipped**; `pnpm test:e2e` — **8 passed, 0 failed, 0 skipped**.
+
 ## Fase RS-01 / RS-05 — autenticación y seguridad API
 
 Fecha: 2026-09-27. `pnpm test:all` terminó correctamente contra PostgreSQL temporal local. El script detuvo y eliminó el clúster temporal. No se usó producción, no hubo deploy/push y no se hicieron solicitudes a sistemas externos.

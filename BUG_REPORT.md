@@ -28,7 +28,7 @@ Todos los flujos se validaron en una instancia PostgreSQL temporal con datos de 
 - **Causa:** el DTO móvil quedó desactualizado respecto al contrato de la API.
 - **Corrección:** casilla de verificación de identidad, transmisión de `identidadConfirmada`, lectura tolerante de JSON/texto y propagación del error HTTP.
 - **Regression test:** `app-movil/src/services/ticketService.test.js` (contrato de despacho y error HTTP).
-- **Estado:** Corregido y verificado a nivel de servicio móvil; el escaneo real de cámara no tiene E2E automatizado.
+- **Estado:** Corregido y verificado a nivel de servicio móvil; el cierre de RF-13 añade E2E Chromium de cámara y despacho en `e2e/pwa-dispatch.spec.js`.
 
 ## BUG-03
 
@@ -268,4 +268,17 @@ Durante RF-23 se revisaron los fallos definitivos de entrega, las transacciones 
 - **Causa:** interpolación directa de datos no confiables en las plantillas HTML de ticket, listado, despacho y error de cámara.
 - **Corrección:** agregar escape de entidades HTML para todos los valores dinámicos y limitar el nombre de clase derivado del estado a caracteres seguros.
 - **Regression test:** `ticketService.test.js` comprueba escape de `<script>`, comillas y nombre de clase manipulado; revisión `rg` de todas las interpolaciones de `innerHTML` confirma escape o valor estático.
-- **Estado:** Corregido y verificado; E2E de navegador móvil continúa fuera del alcance.
+- **Estado:** Corregido y verificado; la prueba E2E de la PWA se añadió después en el cierre de RF-13.
+
+## BUG-19
+
+- **Severidad:** MEDIUM
+- **Requisito:** RF-13
+- **Componente:** PWA, formulario de despacho
+- **Reproducción:** activar un lector de pantalla o localizar por nombre accesible el campo de galones y observaciones en el formulario de despacho.
+- **Resultado esperado:** los textos de etiqueta identifican programáticamente los controles correspondientes.
+- **Resultado obtenido:** las etiquetas visibles de esos dos campos no estaban asociadas a los inputs/textarea; el lector de pantalla y las herramientas E2E no podían encontrarlos por su etiqueta.
+- **Causa:** faltaban los atributos `for` asociados a `id`.
+- **Corrección:** enlazar las etiquetas con `#galones` y `#observaciones`; la casilla de identidad permanece asociada por anidación.
+- **Regression test:** `e2e/pwa-dispatch.spec.js` localiza los campos con `getByLabel` y completa el despacho en Chromium.
+- **Estado:** Corregido y verificado en `pnpm test:e2e` (8/8).

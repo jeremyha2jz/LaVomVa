@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using System.Security.Claims;
@@ -8,10 +9,12 @@ using System.Text.Json.Serialization;
 using TicketsCombustible.Api.Data;
 using TicketsCombustible.Api.Services;
 using TicketsCombustible.Api.Hubs;
+using TicketsCombustible.Api;
 
 var builder = WebApplication.CreateBuilder(args);
 var connectionString = builder.Configuration.GetConnectionString("TicketsCombustible")
     ?? throw new InvalidOperationException("Falta ConnectionStrings:TicketsCombustible.");
+SecurityConfiguration.Validate(builder.Configuration, builder.Environment);
 
 builder.Services.AddDbContext<TicketsCombustibleDbContext>(options => options.UseNpgsql(connectionString));
 builder.Services.AddHttpContextAccessor();
@@ -34,8 +37,7 @@ builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
 builder.Services.AddHttpClient<ISmsSender, HttpSmsSender>();
 builder.Services.AddScoped<TicketDeliveryService>();
 builder.Services.AddMemoryCache();
-var jwtKey = builder.Configuration["Jwt:Key"] ?? throw new InvalidOperationException("Falta Jwt:Key.");
-if (Encoding.UTF8.GetByteCount(jwtKey) < 32 || jwtKey.StartsWith("REEMPLAZA_")) throw new InvalidOperationException("Configura Jwt:Key con al menos 32 bytes privados.");
+var jwtKey = builder.Configuration["Jwt:Key"]!;
 var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "TicketsCombustible.Api";
 var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "LaVomVa.Client";
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(options =>
@@ -81,9 +83,28 @@ builder.Services.AddCors(options => options.AddPolicy("pwa", policy =>
     if (builder.Environment.IsDevelopment()) policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod();
     else if (allowedOrigins.Length > 0) policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod();
 }));
+var trustedProxies = builder.Configuration.GetSection("ReverseProxy:KnownProxies").Get<string[]>() ?? [];
+if (trustedProxies.Length > 0)
+{
+    builder.Services.Configure<ForwardedHeadersOptions>(options =>
+    {
+        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+        foreach (var proxy in trustedProxies)
+        {
+            if (!System.Net.IPAddress.TryParse(proxy, out var address))
+                throw new InvalidOperationException("ReverseProxy:KnownProxies solo admite direcciones IP explícitas.");
+            options.KnownProxies.Add(address);
+        }
+    });
+}
 builder.Services.AddControllers().AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddHttpsRedirection(options =>
+{
+    if (builder.Configuration.GetValue<int?>("HttpsRedirection:HttpsPort") is { } httpsPort)
+        options.HttpsPort = httpsPort;
+});
 
 var app = builder.Build();
 app.Use(async (context, next) =>
@@ -94,6 +115,12 @@ app.Use(async (context, next) =>
     await next();
 });
 if (app.Environment.IsDevelopment()) { app.UseSwagger(); app.UseSwaggerUI(); }
+if (!app.Environment.IsDevelopment() && !app.Environment.IsEnvironment("Testing"))
+{
+    if (trustedProxies.Length > 0) app.UseForwardedHeaders();
+    app.UseHsts();
+    app.UseHttpsRedirection();
+}
 app.UseCors("pwa");
 app.UseAuthentication();
 app.UseAuthorization();

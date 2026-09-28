@@ -26,22 +26,28 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
 
     public void ResetProviders() { EmailFake.Reset(); SmsFake.Reset(); InventoryEvents.Reset(); }
 
-    public ApiTestFactory(string connectionString)
+    private readonly string environmentName;
+
+    public ApiTestFactory(string connectionString, string environmentName = "Testing")
     {
         var parsed = new NpgsqlConnectionStringBuilder(connectionString);
         if (parsed.Database != "lavomva_test" || parsed.Host is not ("127.0.0.1" or "localhost" or "::1"))
             throw new InvalidOperationException("QA_TEST_CONNECTION solo puede apuntar a lavomva_test en loopback local.");
-        this.connectionString = connectionString;
+        if (string.IsNullOrWhiteSpace(parsed.Password)) parsed.Password = "TEST_ONLY_DATABASE_AUTH_2026";
+        this.connectionString = parsed.ConnectionString;
+        this.environmentName = environmentName;
         // Minimal hosting reads values at WebApplication.CreateBuilder, before ConfigureWebHost runs.
-        Environment.SetEnvironmentVariable("ConnectionStrings__TicketsCombustible", connectionString);
+        Environment.SetEnvironmentVariable("ConnectionStrings__TicketsCombustible", this.connectionString);
         Environment.SetEnvironmentVariable("Jwt__Key", JwtSecret);
         Environment.SetEnvironmentVariable("Qr__SigningSecret", QrSecret);
         Environment.SetEnvironmentVariable("Bootstrap__Secret", "qa-bootstrap-secret-that-is-not-used-000000");
+        Environment.SetEnvironmentVariable("ReverseProxy__KnownProxies__0", "127.0.0.1");
+        Environment.SetEnvironmentVariable("HttpsRedirection__HttpsPort", "5443");
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        builder.UseEnvironment("Testing");
+        builder.UseEnvironment(environmentName);
         builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["ConnectionStrings:TicketsCombustible"] = connectionString,
@@ -56,6 +62,8 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
             ["Sms:Endpoint"] = "https://sms.qa.invalid/send",
             ["Sms:ApiKey"] = "qa-sms-key-not-used",
             ["Sms:Provider"] = "FAKE-SMS",
+            ["HttpsRedirection:HttpsPort"] = "5443",
+            ["ReverseProxy:KnownProxies:0"] = "127.0.0.1",
             ["Logging:LogLevel:Default"] = "Warning"
         }));
         builder.ConfigureTestServices(services =>

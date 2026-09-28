@@ -9,6 +9,8 @@ using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.AspNetCore.Http;
 using TicketsCombustible.Api.Data;
 using TicketsCombustible.Api.Models;
 using Xunit;
@@ -28,7 +30,7 @@ public sealed class QaFixture : IAsyncLifetime
         var connection = Environment.GetEnvironmentVariable("QA_TEST_CONNECTION")
             ?? throw new InvalidOperationException("Define QA_TEST_CONNECTION hacia una base temporal lavomva_test.");
         Factory = new ApiTestFactory(connection);
-        Client = Factory.CreateClient();
+        Client = Factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost") });
         return Task.CompletedTask;
     }
 
@@ -50,6 +52,32 @@ public sealed class QaFixture : IAsyncLifetime
 public sealed class ApiIntegrationTests(QaFixture qa)
 {
     private HttpClient Client => qa.Client;
+
+    [Fact]
+    public async Task Politica_TLS_redirige_HTTP_y_emite_HSTS_en_transporte_HTTPS()
+    {
+        await qa.ResetAsync();
+        await using var production = new ApiTestFactory(Environment.GetEnvironmentVariable("QA_TEST_CONNECTION")!, "Production");
+        using var http = production.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("http://localhost"),
+            AllowAutoRedirect = false
+        });
+
+        var redirect = await http.GetAsync("api/no-route");
+        Assert.Equal(HttpStatusCode.TemporaryRedirect, redirect.StatusCode);
+        Assert.Equal("https", redirect.Headers.Location?.Scheme);
+        Assert.Equal(5443, redirect.Headers.Location?.Port);
+
+        var secure = await production.Server.SendAsync(context =>
+        {
+            context.Request.Method = HttpMethods.Get;
+            context.Request.Path = "/api/no-route";
+            context.Request.Scheme = "https";
+            context.Request.Host = new HostString("lavomva.test");
+        });
+        Assert.Equal("max-age=2592000", secure.Response.Headers["Strict-Transport-Security"].ToString());
+    }
 
     [Fact]
     public async Task Registro_persiste_usuario_inactivo_con_hash_y_login_rechaza_hasta_activacion()

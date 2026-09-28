@@ -16,9 +16,19 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
+  const request = event.request;
+  const requestUrl = new URL(request.url);
+
+  // API data, credentials, and any non-GET request must always go to the network.
+  // The PWA is served from the same origin as /api through Vite or the production proxy.
+  if (request.method !== "GET" || requestUrl.origin !== self.location.origin || requestUrl.pathname === "/api" || requestUrl.pathname.startsWith("/api/")) {
+    event.respondWith(fetch(request));
+    return;
+  }
+
   event.respondWith(
-    caches.match(event.request).then((respuestaCacheada) => {
-      return respuestaCacheada || fetch(event.request);
+    caches.match(request).then((respuestaCacheada) => {
+      return respuestaCacheada || fetch(request);
     })
   );
 });

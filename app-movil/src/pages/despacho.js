@@ -8,9 +8,9 @@ export function renderDespacho(container, ticket) {
       <h1>Registrar despacho</h1>
       <p><strong>Ticket:</strong> ${escapeHtml(ticket.id)}</p>
       <form id="despacho-form">
-        <label>Galones servidos</label>
+        <label for="galones">Galones servidos</label>
         <input type="number" id="galones" step="0.1" min="0.1" max="${escapeHtml(ticket.cantidadAutorizada)}" required />
-        <label>Observaciones</label>
+        <label for="observaciones">Observaciones</label>
         <textarea id="observaciones" placeholder="Opcional"></textarea>
         <label><input type="checkbox" id="identidad-confirmada" required /> Confirmo que verifiqué la identidad del conductor.</label>
         <button type="submit">Confirmar despacho</button>

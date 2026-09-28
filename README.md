@@ -30,7 +30,9 @@ npm --prefix app-movil ci
 pnpm test:all
 ```
 
-El comando crea una instancia PostgreSQL temporal, carga `DATABASE_FINALLL`, ejecuta Vitest, las pruebas de contrato móvil, las pruebas de integración de API con cobertura y las compilaciones web/PWA/API. Al terminar, detiene y elimina esa instancia. Nunca apunta a una base configurada por el usuario. Para las suites individuales: `pnpm test`, `pnpm --dir app-movil test` y `dotnet test tests/TicketsCombustible.Api.Tests/TicketsCombustible.Api.Tests.csproj` (esta última requiere `QA_TEST_CONNECTION` hacia una base aislada con el esquema cargado).
+El comando crea una instancia PostgreSQL temporal, carga `DATABASE_FINALLL`, ejecuta Vitest, las pruebas PWA/service worker, el escáner local de secretos, las pruebas API con cobertura y las compilaciones web/PWA/API. Al terminar, detiene y elimina esa instancia. Nunca apunta a una base configurada por el usuario. Para validar la interfaz móvil real en Chromium instala una vez el navegador con `pnpm exec playwright install chromium` y ejecuta `pnpm test:e2e`; este comando crea su propio PostgreSQL temporal, arranca API/PWA en loopback y limpia la infraestructura al terminar. La cámara sintética reproduce en Chromium PNG de tickets emitidos por la API temporal. `pnpm test:e2e` queda separado de `pnpm test:all` porque necesita Chromium.
+
+Comprobaciones individuales: `pnpm test`, `pnpm --dir app-movil test`, `pnpm test:security` y `dotnet test tests/TicketsCombustible.Api.Tests/TicketsCombustible.Api.Tests.csproj` (esta última requiere `QA_TEST_CONNECTION` hacia una base aislada con el esquema y migraciones cargados).
 
 ## Funcionalidades disponibles
 
@@ -106,7 +108,7 @@ El detalle requisito por requisito está en el documento de brechas frente al SR
 
 - **Autenticación y roles.** La API exige JWT en las rutas privadas, valida cuenta y roles actuales y soporta refresh rotatorio con revocación. Todavía faltan políticas de alcance por usuario; tokens en almacenamiento web/PWA conservan exposición a XSS y no hay límite de intentos de login por cuenta/IP.
 - **Prueba de validación QR en memoria.** `POST /api/despachos` exige que la misma sesión haya validado recientemente el QR. Una instalación con varias instancias necesita un almacén compartido para esta prueba.
-- **Escaneo QR desde cámara real.** La integración con cámara y permisos del navegador no tiene prueba E2E automatizada; se valida el contrato móvil mediante pruebas unitarias y el flujo servidor mediante integración.
+- **Escaneo QR y permisos de cámara.** El E2E de Chromium prueba el lector con un dispositivo sintético; no automatiza un teléfono/cámara física. El despliegue de la PWA requiere HTTPS para acceder a cámara en navegadores reales (`localhost` queda exento).
 - **La web y la app móvil usan el mismo puerto (5173).** Para usarlas a la vez, arranca la app móvil con `npm run dev -- --port 5174`.
 - **SignalR en producción.** La conexión `/hubs/inventory` usa el JWT de la sesión y comparte las reglas de lectura REST. Configura `Cors:AllowedOrigins` cuando web y API tengan orígenes distintos. La instancia actual transmite eventos solo a sus conexiones; un despliegue horizontal necesita un backplane SignalR o servicio equivalente.
 - **Zonas horarias mezcladas.** El cierre define el día operacional como UTC, desde las 00:00:00 inclusive hasta las 00:00:00 del día siguiente exclusive. La base asigna nuevos movimientos y despachos a UTC. Otras fechas del sistema aún usan hora local de PostgreSQL; la web puede mostrarlas con desplazamiento.
@@ -116,7 +118,7 @@ El detalle requisito por requisito está en el documento de brechas frente al SR
 - **Solicitudes automáticas y recurrentes:** se guarda el tipo, pero no hay programación que las genere.
 - **Sin transferencias entre tanques:** la base las permite, pero no hay endpoint.
 - **Catálogos adicionales:** estaciones, tanques y proveedores se crean desde "Administración". La edición y desactivación de esos catálogos aún requiere la API.
-- **Cobertura automatizada parcial.** Existen pruebas Vitest para la web, pruebas de contrato móvil y pruebas de integración API/PostgreSQL; falta E2E de navegador y dispositivo.
+- **Límite de despliegue TLS.** La API exige Kestrel HTTPS con certificado externo o una IP de proxy confiable al iniciar fuera de Development, y aplica redirección/HSTS. Esta política se prueba localmente; no se ha desplegado hosting externo ni instalado un certificado real.
 - **Versiones sin fijar.** `package.json` de la web usa `latest` en todas sus dependencias; `pnpm-lock.yaml` fija las versiones, así que instala con `pnpm install --frozen-lockfile`.
 - **Caché de la app móvil.** El service worker sirve `index.html` desde caché; tras un cambio puede hacer falta "Update on reload" o "Unregister" en DevTools → Application → Service Workers.
 
@@ -219,6 +221,19 @@ Después elimina `Bootstrap:Secret` de la configuración y reinicia la API. Entr
 Antes de registrar solicitudes, crea en la web un departamento, empleado y vehículo. En "Administración" puedes crear proveedor, estación y tanque. El despacho elige el tanque automáticamente solo si hay exactamente uno compatible.
 
 No reutilices las contraseñas ni el secreto de arranque entre instalaciones.
+
+## Configuración segura fuera de Development
+
+No guardes secretos en `appsettings.json`, `.env.example`, archivos del frontend ni el repositorio. En desarrollo local usa variables de entorno o un gestor de secretos; en despliegue usa el almacén de secretos del entorno. La aplicación requiere `ConnectionStrings__TicketsCombustible`, `Jwt__Key` y `Qr__SigningSecret`; JWT y QR deben ser valores privados aleatorios de al menos 32 bytes. La API falla al iniciar si faltan o parecen placeholders. `Bootstrap__Secret` solo se necesita para crear el primer administrador y debe retirarse después.
+
+Para correo configura, cuando vayas a usar ese canal, `Smtp__Host`, `Smtp__Port`, `Smtp__Username`, `Smtp__Password`, `Smtp__From` y `Smtp__EnableSsl`. Para SMS configura `Sms__Endpoint` (solo HTTPS), `Sms__ApiKey` y `Sms__Provider`. `TicketDelivery__PublicBaseUrl` es una URL HTTPS pública y no contiene credenciales. No coloques claves de servidor en variables `VITE_*`; son visibles en el navegador.
+
+Configura una terminación TLS:
+
+- **Kestrel:** usa `Kestrel__Endpoints__Https__Url` (por ejemplo `https://0.0.0.0:5001`), `Kestrel__Endpoints__Https__Certificate__Path` y, si el PFX lo requiere, `Kestrel__Endpoints__Https__Certificate__Password`. Monta el certificado privado desde fuera del repositorio; `.pfx`, `.p12`, `.pem` y `.key` se excluyen de Git.
+- **Proxy inverso:** termina TLS en el proxy y configura `ReverseProxy__KnownProxies__0` con la IP exacta y confiable del proxy. La API procesa `X-Forwarded-Proto` únicamente desde esas IP configuradas; los demás requests HTTP se redirigen a HTTPS.
+
+Fuera de Development la API aplica redirección HTTPS y HSTS. TestServer verifica la redirección y la cabecera HSTS; no simula el certificado ni confirma el hosting externo. La cámara de un teléfono requiere abrir la PWA por HTTPS; `localhost` es una excepción de desarrollo.
 
 ## Desarrollo y comprobaciones
 

@@ -45,6 +45,8 @@ echo "== Web build =="
 pnpm run build
 echo "== Mobile unit tests =="
 pnpm --dir app-movil test
+echo "== Secret and configuration regression tests =="
+pnpm test:security
 echo "== Mobile build =="
 pnpm --dir app-movil run build
 echo "== API build =="

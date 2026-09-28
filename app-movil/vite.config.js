@@ -6,7 +6,7 @@ export default defineConfig({
     allowedHosts: ['.ngrok-free.dev', '.ngrok-free.app'],
     proxy: {
       '/api': {
-        target: 'http://localhost:5007',
+        target: process.env.VITE_API_PROXY_TARGET || 'http://localhost:5007',
         changeOrigin: true
       }
     }
