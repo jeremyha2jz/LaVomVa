@@ -1,5 +1,51 @@
 # Informe de ejecución QA
 
+## Fase RF-19/RF-20 — reportes y exportaciones
+
+Fecha: 2026-09-27. Corrida final de `pnpm test:all` con PostgreSQL temporal basado en `DATABASE_FINALLL` y migraciones 001–006. El script terminó y eliminó el clúster temporal. No se usó producción, deploy, push ni proveedores externos.
+
+### Resultado
+
+| Suite | Anterior | Nuevos | Total | Pasaron | Fallaron | Omitidos |
+|---|---:|---:|---:|---:|---:|---:|
+| Web (Vitest) | 45 | 4 | 49 | 49 | 0 | 0 |
+| PWA (Node test) | 13 | 0 | 13 | 13 | 0 | 0 |
+| API (xUnit + PostgreSQL) | 182 | 4 | 186 | 186 | 0 | 0 |
+| **Total** | **240** | **8** | **248** | **248** | **0** | **0** |
+
+Se conservaron los 240 tests anteriores. No se eliminaron pruebas, añadieron skips ni debilitaron asserts. Los ocho nuevos casos cubren consulta/API y exportación filtrada, persistencia de datos, CSV injection, XLSX válido, PDF vacío y multipágina, paginación y flujos web de cargar, filtrar, exportar, error y vacío.
+
+### Cobertura
+
+| Área | Anterior | Nueva |
+|---|---:|---:|
+| API líneas | 91.85% | **91.86%** |
+| API ramas | 75.70% | **77.03%** |
+| API métodos | 92.47% (430/465) | **93.10% (486/522)** |
+| Web líneas | 69.24% | **69.92%** |
+| Web ramas | 49.11% | **50.72%** |
+| PWA líneas | 87.58% | **87.58%** |
+| PWA ramas | 60.87% | **60.87%** |
+
+La API supera los mínimos de esta fase de 90% en líneas y 70% en ramas. La suite reportó además el aviso existente de Vitest/coverage-v8 con versiones 5.0.2/5.0.1 y dos EF1002 en fixtures de SQL de pruebas; builds y suites terminaron correctamente.
+
+### Requisitos
+
+- **RF-19:** anterior PARTIAL; nuevo **PASS**. API server-side para consumo, tickets, despachos y movimientos; filtros inclusivos UTC, agregaciones, totales y paginación.
+- **RF-20:** anterior PARTIAL; nuevo **PASS**. Exportaciones reales CSV, XLSX y PDF. Los cuatro formatos utilizan el mismo resultado filtrado y totales; CSV y Excel protegen texto introducido por usuarios.
+- **RF-24:** sigue PARTIAL, porque la cobertura no alcanza todas las rutas REST del sistema.
+- **RS-02:** sigue PARTIAL, porque la matriz RBAC todavía no cubre cada endpoint protegido.
+
+### Validaciones
+
+`GET /api/reportes` y `GET /api/reportes/exportar` requieren autenticación; todos los roles autenticados mantienen la lectura ya disponible en la pantalla Reportes. Las queries y agregaciones se realizan en PostgreSQL; la UI pagina hasta 200 filas y los archivos tienen un máximo de 10 000. El XLSX tiene hojas Resumen/Detalle y se volvió a abrir con ClosedXML. PDF usa el generador existente y pasó cabecera, contenido, vacío y multipágina. JSON/CSV/XLSX/PDF se compararon sobre el mismo dataset persistido.
+
+### Bugs
+
+Se encontró y corrigió BUG-14: el proveedor EF Core no traducía agrupaciones de un DTO para reportes de movimientos y podía responder 500. La regresión de 65 movimientos persistidos, paginación y PDF multipágina pasó. Las fallas iniciales de su fixture eran por fechas de inserción que el trigger reemplaza con la fecha UTC real y objetos EF rastreados; el test fija su fecha operacional explícitamente después del insert. No se registran como bugs adicionales del producto.
+
+Comando final ejecutado: `pnpm test:all` — **248 passed, 0 failed, 0 skipped**.
+
 ## Fase RF-15 — inventario en tiempo real
 
 Fecha: 2026-09-27. Validación final ejecutada con `pnpm test:all` contra un PostgreSQL temporal basado en `DATABASE_FINALLL` y migraciones 001–006. El script apagó y eliminó el clúster temporal al terminar. No se usó producción, deploy, push ni proveedores reales de correo/SMS.

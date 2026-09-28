@@ -76,6 +76,7 @@ public class TicketsCombustibleDbContext(DbContextOptions<TicketsCombustibleDbCo
         modelBuilder.Entity<RegistroAuditoria>().Property(x => x.FechaHora).HasColumnType("timestamp without time zone");
         modelBuilder.Entity<SolicitudCombustible>().Property(x => x.Estado).HasConversion<string>();
         modelBuilder.Entity<SolicitudCombustible>().Property(x => x.FechaSolicitud).HasDefaultValueSql("CURRENT_TIMESTAMP").ValueGeneratedOnAdd();
+        modelBuilder.Entity<SolicitudCombustible>().Property(x => x.FechaSolicitud).HasColumnType("timestamp without time zone");
         modelBuilder.Entity<SolicitudCombustible>().Property(x => x.FechaVencimiento).HasColumnType("timestamp without time zone");
         modelBuilder.Entity<SolicitudCombustible>().Property(x => x.FechaAprobacion).HasColumnType("timestamp without time zone");
         modelBuilder.Entity<Ticket>().Property(x => x.Estado).HasConversion<string>();

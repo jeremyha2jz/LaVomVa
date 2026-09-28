@@ -1,4 +1,5 @@
 using TicketsCombustible.Api.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace TicketsCombustible.Api.Services;
 
@@ -24,6 +25,22 @@ public sealed class TicketLifecycleService(TimeProvider timeProvider)
         return ticket.Estado is EstadoTicket.CREADO or EstadoTicket.ENVIADO or EstadoTicket.PENDIENTE
             ? ticket.Estado
             : EstadoTicket.CREADO;
+    }
+
+    /// <summary>Applies the same persisted and time-derived state rules to database queries.</summary>
+    public IQueryable<Ticket> FiltrarPorEstado(IQueryable<Ticket> tickets, EstadoTicket estado, DateTime? instanteUtc = null)
+    {
+        var now = ComoUtc(instanteUtc ?? UtcNow);
+        var soon = now.Add(ProximoAVencerThreshold);
+        return estado switch
+        {
+            EstadoTicket.VENCIDO => tickets.Where(t => t.Estado != EstadoTicket.CONSUMIDO && t.Estado != EstadoTicket.ANULADO && t.FechaVencimiento <= now),
+            EstadoTicket.PROXIMO_A_VENCER => tickets.Where(t => t.Estado != EstadoTicket.CONSUMIDO && t.Estado != EstadoTicket.ANULADO && t.FechaVencimiento > now && t.FechaVencimiento <= soon),
+            EstadoTicket.CREADO => tickets.Where(t => (t.Estado == EstadoTicket.CREADO || t.Estado == EstadoTicket.PROXIMO_A_VENCER || t.Estado == EstadoTicket.VENCIDO) && t.FechaVencimiento > soon),
+            EstadoTicket.ENVIADO => tickets.Where(t => t.Estado == EstadoTicket.ENVIADO && t.FechaVencimiento > soon),
+            EstadoTicket.PENDIENTE => tickets.Where(t => t.Estado == EstadoTicket.PENDIENTE && t.FechaVencimiento > soon),
+            _ => tickets.Where(t => t.Estado == estado)
+        };
     }
 
     public bool PuedeTransicionar(EstadoTicket estadoActual, EstadoTicket estadoDestino) => estadoDestino switch

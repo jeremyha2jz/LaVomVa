@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { api, clearSession, loadLiveData, login, reconcileTicketDelivery, register, retryTicketDelivery, savedSession, sendTicket, ticketDeliveryHistory, ticketQr } from './api'
+import { api, clearSession, exportReport, getReport, loadLiveData, login, reconcileTicketDelivery, register, retryTicketDelivery, savedSession, sendTicket, ticketDeliveryHistory, ticketQr } from './api'
 
 const fetchMock = vi.fn<typeof fetch>()
 
@@ -12,6 +12,27 @@ beforeEach(() => { sessionStorage.clear(); fetchMock.mockReset(); vi.stubGlobal(
 afterEach(() => { vi.unstubAllGlobals() })
 
 describe('servicio API web', () => {
+  it('consulta reportes con los filtros y parámetros de paginación codificados', async () => {
+    fetchMock.mockResolvedValue(response({ items: [], totalRegistros: 0 }))
+    await getReport({ tipo: 'consumo', desde: '2026-09-01', hasta: '2026-09-30', departamentoId: 4, combustibleId: 2, estado: 'CONSUMIDO', pagina: 2, tamanoPagina: 25 })
+    const url = new URL(String(fetchMock.mock.calls[0][0]), window.location.origin)
+    expect(url.pathname).toBe('/api/reportes')
+    expect(Object.fromEntries(url.searchParams)).toEqual({ tipo: 'consumo', desde: '2026-09-01', hasta: '2026-09-30', departamentoId: '4', combustibleId: '2', estado: 'CONSUMIDO', pagina: '2', tamanoPagina: '25' })
+  })
+
+  it('descarga exportaciones con JWT, formato, filtros y nombre anunciado por la API', async () => {
+    sessionStorage.setItem('lavomva-session', JSON.stringify({ token: 'report-token', id: 7, name: 'QA', role: 'AUDITOR' }))
+    fetchMock.mockResolvedValue(new Response('xlsx-bytes', { headers: { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': 'attachment; filename=\"reporte-consumo-2026-09-27.xlsx\"' } }))
+    const result = await exportReport({ tipo: 'consumo', estacionId: 8, desde: '2026-09-01' }, 'xlsx')
+    const url = new URL(String(fetchMock.mock.calls[0][0]), window.location.origin)
+    expect(url.pathname).toBe('/api/reportes/exportar')
+    expect(url.searchParams.get('formato')).toBe('xlsx')
+    expect(url.searchParams.get('estacionId')).toBe('8')
+    expect(fetchMock.mock.calls[0][1]?.headers).toMatchObject({ Authorization: 'Bearer report-token' })
+    expect(result.filename).toBe('reporte-consumo-2026-09-27.xlsx')
+    expect(await result.blob.text()).toBe('xlsx-bytes')
+  })
+
   it('guarda, recupera, limpia y descarta una sesión corrupta', () => {
     expect(savedSession()).toBeNull()
     sessionStorage.setItem('lavomva-session', '{mal json')

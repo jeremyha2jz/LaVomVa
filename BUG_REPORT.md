@@ -204,3 +204,16 @@ Durante RF-23 se revisaron los fallos definitivos de entrega, las transacciones 
 - **Corrección:** pasar un instante UTC y convertirlo con `timezone('UTC', ...)` al insertar el timestamp sin zona; la notificación comparte la transacción de la operación.
 - **Regression test:** `ApiCoverageTests.Fallos_de_proveedor_se_persisten_sanitizados_sin_marcar_enviado`, `Inventario_bajo_crea_un_aviso_por_episodio_y_los_ajustes_se_enlazan_al_movimiento` y `Fallo_de_auditoria_revierte_ajuste_y_notificaciones_asociadas`.
 - **Estado:** Corregido; verificado en la suite integral RF-23.
+
+## BUG-14
+
+- **Severidad:** MEDIUM
+- **Requisito:** RF-19, RF-20
+- **Componente:** API de reportes de movimientos
+- **Reproducción:** consultar `GET /api/reportes?tipo=movimientos` con movimientos persistidos.
+- **Resultado esperado:** responder con filas, totales y agregaciones válidas para el informe.
+- **Resultado obtenido:** EF Core no traducía el filtrado/agregado de campos del DTO proyectado y lanzaba una excepción, que terminaba como HTTP 500.
+- **Causa:** aplicar agrupaciones y conteo condicional directamente sobre una proyección `ReporteFila` no era traducible por el proveedor PostgreSQL.
+- **Corrección:** agregar combustible y tipo de movimiento sobre las entidades SQL; los campos no aplicables a movimientos quedan vacíos, y su total de tickets se fija en cero.
+- **Regression test:** `ApiCoverageTests.Reporte_de_movimientos_es_paginado_y_el_PDF_de_muchos_registros_tiene_varias_paginas`.
+- **Estado:** Corregido y verificado en `pnpm test:all` (248/248, 0 omitidos).

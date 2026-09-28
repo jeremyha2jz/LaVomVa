@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using ClosedXML.Excel;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR.Client;
@@ -2370,6 +2371,203 @@ public sealed class ApiCoverageTests(QaFixture qa)
             var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
             await db.Database.ExecuteSqlRawAsync("DROP TRIGGER IF EXISTS qa_rechazar_auditoria_ajuste ON auditoria; DROP FUNCTION IF EXISTS qa_rechazar_auditoria_ajuste();");
         }
+    }
+
+    [Fact]
+    public async Task Reportes_consulta_aplica_fechas_inclusivas_filtros_y_paginacion_sobre_datos_persistidos()
+    {
+        await qa.ResetAsync();
+        var admin = await LoginAsync("qa.reports.query", "ADMINISTRADOR");
+        var catalog = await SeedCatalogAsync(stock: 50m);
+        var first = await IssueTicketAsync(catalog, 12m);
+        var second = await IssueTicketAsync(catalog, 8m);
+        await DispatchReportTicketAsync(first, catalog, 10.25m);
+        await DispatchReportTicketAsync(second, catalog, 3.75m);
+
+        var baseDate = new DateTime(2026, 9, 27, 0, 0, 0, DateTimeKind.Unspecified);
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+            var dispatches = await db.Despachos.OrderBy(x => x.Id).ToListAsync();
+            dispatches[0].FechaHora = baseDate;
+            dispatches[1].FechaHora = baseDate.AddHours(23).AddMinutes(59).AddSeconds(59);
+            await db.SaveChangesAsync();
+            var movements = await db.MovimientosInventario.OrderBy(x => x.Id).ToListAsync();
+            movements[0].FechaHora = baseDate;
+            movements[1].FechaHora = baseDate.AddHours(23).AddMinutes(59).AddSeconds(59);
+            await db.SaveChangesAsync();
+        }
+
+        using var reader = AuthenticatedClient(admin.Token);
+        var daily = await reader.GetAsync("api/reportes?tipo=consumo&desde=2026-09-27&hasta=2026-09-27&departamentoId=" + catalog.DepartmentId +
+            "&combustibleId=" + catalog.FuelId + "&empleadoId=" + catalog.EmployeeId + "&vehiculoId=" + catalog.VehicleId +
+            "&estacionId=" + catalog.StationId + "&estado=CONSUMIDO&pagina=1&tamanoPagina=1");
+        Assert.Equal(HttpStatusCode.OK, daily.StatusCode);
+        var pageOne = await daily.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(2, pageOne.GetProperty("totalRegistros").GetInt64());
+        Assert.Equal(1, pageOne.GetProperty("items").GetArrayLength());
+        Assert.Equal(14m, pageOne.GetProperty("totales").GetProperty("galones").GetDecimal());
+        Assert.Equal(2, pageOne.GetProperty("totales").GetProperty("despachos").GetInt32());
+        Assert.Equal("QA Coverage Department", pageOne.GetProperty("porDepartamento")[0].GetProperty("nombre").GetString());
+        Assert.Equal(14m, pageOne.GetProperty("porDepartamento")[0].GetProperty("galones").GetDecimal());
+        Assert.Equal(2, pageOne.GetProperty("porCombustible")[0].GetProperty("cantidad").GetInt32());
+        var pageTwo = await reader.GetFromJsonAsync<JsonElement>("api/reportes?tipo=consumo&desde=2026-09-27&hasta=2026-09-27&departamentoId=" + catalog.DepartmentId +
+            "&combustibleId=" + catalog.FuelId + "&empleadoId=" + catalog.EmployeeId + "&vehiculoId=" + catalog.VehicleId +
+            "&estacionId=" + catalog.StationId + "&estado=CONSUMIDO&pagina=2&tamanoPagina=1");
+        Assert.Equal(1, pageTwo.GetProperty("items").GetArrayLength());
+        Assert.NotEqual(pageOne.GetProperty("items")[0].GetProperty("id").GetInt64(), pageTwo.GetProperty("items")[0].GetProperty("id").GetInt64());
+
+        var nextDay = await reader.GetFromJsonAsync<JsonElement>("api/reportes?tipo=despachos&desde=2026-09-28&hasta=2026-09-28");
+        Assert.Equal(0, nextDay.GetProperty("totalRegistros").GetInt64());
+        Assert.Empty(nextDay.GetProperty("items").EnumerateArray());
+        Assert.Equal(HttpStatusCode.BadRequest, (await reader.GetAsync("api/reportes?desde=2026-09-28&hasta=2026-09-27")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await reader.GetAsync("api/reportes?departamentoId=999999")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await reader.GetAsync("api/reportes?pagina=0")).StatusCode);
+        using var anonymous = qa.Factory.CreateClient();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync("api/reportes")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Reportes_CSV_XLSX_y_PDF_comparten_filtros_totales_y_datos_y_protegen_inyeccion_CSV()
+    {
+        await qa.ResetAsync();
+        await LoginAsync("qa.reports.files", "ADMINISTRADOR");
+        var catalog = await SeedCatalogAsync(stock: 40m);
+        var issued = await IssueTicketAsync(catalog, 12m);
+        await DispatchReportTicketAsync(issued, catalog, 10.25m);
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+            var employee = await db.Empleados.SingleAsync(x => x.Id == catalog.EmployeeId);
+            employee.NombreCompleto = "=HYPERLINK(\"https://qa.invalid\",\"inject ñ\")";
+            await db.SaveChangesAsync();
+        }
+
+        var filters = $"tipo=consumo&desde={DateTime.UtcNow:yyyy-MM-dd}&hasta={DateTime.UtcNow:yyyy-MM-dd}&estacionId={catalog.StationId}";
+        var jsonResponse = await Client.GetAsync("api/reportes?" + filters);
+        Assert.Equal(HttpStatusCode.OK, jsonResponse.StatusCode);
+        var json = await jsonResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var jsonItem = Assert.Single(json.GetProperty("items").EnumerateArray());
+        Assert.Equal(10.25m, json.GetProperty("totales").GetProperty("galones").GetDecimal());
+        Assert.Equal("application/json; charset=utf-8", jsonResponse.Content.Headers.ContentType!.ToString());
+
+        var csvResponse = await Client.GetAsync("api/reportes/exportar?" + filters + "&formato=csv");
+        Assert.Equal(HttpStatusCode.OK, csvResponse.StatusCode);
+        Assert.StartsWith("text/csv", csvResponse.Content.Headers.ContentType!.ToString());
+        Assert.Contains("filename=", csvResponse.Content.Headers.ContentDisposition!.ToString());
+        var csv = await csvResponse.Content.ReadAsByteArrayAsync();
+        Assert.True(csv.Length > 40);
+        var csvText = Encoding.UTF8.GetString(csv);
+        Assert.Contains("10.25", csvText);
+        Assert.Contains("'=HYPERLINK", csvText);
+        Assert.Contains("ñ", csvText);
+        Assert.Contains("Registros,1", csvText);
+        Assert.Equal(jsonItem.GetProperty("ticket").GetString(), csvText.Split('\n').Single(x => x.Contains(jsonItem.GetProperty("ticket").GetString()!, StringComparison.Ordinal)).Split(',')[3].Trim('"'));
+
+        var xlsxResponse = await Client.GetAsync("api/reportes/exportar?" + filters + "&formato=xlsx");
+        Assert.Equal(HttpStatusCode.OK, xlsxResponse.StatusCode);
+        Assert.Equal("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", xlsxResponse.Content.Headers.ContentType!.MediaType);
+        var xlsxBytes = await xlsxResponse.Content.ReadAsByteArrayAsync();
+        Assert.True(xlsxBytes.Length > 1000);
+        using (var workbook = new XLWorkbook(new MemoryStream(xlsxBytes)))
+        {
+            Assert.Equal(new[] { "Resumen", "Detalle" }, workbook.Worksheets.Select(x => x.Name));
+            Assert.Equal(10.25, workbook.Worksheet("Resumen").Cell(8, 2).GetDouble(), 2);
+            Assert.Equal(1d, workbook.Worksheet("Resumen").Cell(7, 2).GetDouble());
+            Assert.Equal(2, workbook.Worksheet("Detalle").LastRowUsed()!.RowNumber());
+            Assert.Equal(jsonItem.GetProperty("ticket").GetString(), workbook.Worksheet("Detalle").Cell(2, 4).GetString());
+            Assert.Equal(XLDataType.Text, workbook.Worksheet("Detalle").Cell(2, 5).DataType);
+            Assert.False(workbook.Worksheet("Detalle").Cell(2, 5).HasFormula);
+            Assert.Contains("HYPERLINK", workbook.Worksheet("Detalle").Cell(2, 5).GetString());
+        }
+
+        var pdfResponse = await Client.GetAsync("api/reportes/exportar?" + filters + "&formato=pdf");
+        Assert.Equal(HttpStatusCode.OK, pdfResponse.StatusCode);
+        var pdf = await pdfResponse.Content.ReadAsByteArrayAsync();
+        Assert.StartsWith("%PDF-1.4", Encoding.ASCII.GetString(pdf, 0, 8));
+        var pdfText = Encoding.ASCII.GetString(pdf);
+        Assert.Contains("REPORTE LAVOMVA: CONSUMO", pdfText);
+        Assert.Contains("10.25", pdfText);
+        Assert.Contains("Registros: 1; galones: 10.25", pdfText);
+        Assert.Contains("estacionId=" + catalog.StationId, pdfText);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Client.GetAsync("api/reportes/exportar?formato=csv&hasta=2026-01-01&desde=2026-01-02")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Reportes_sin_datos_generan_JSON_CSV_XLSX_y_PDF_validos()
+    {
+        await qa.ResetAsync();
+        await LoginAsync("qa.reports.empty", "CONSULTA");
+        var jsonResponse = await Client.GetAsync("api/reportes?tipo=consumo&desde=2020-01-01&hasta=2020-01-01");
+        Assert.Equal(HttpStatusCode.OK, jsonResponse.StatusCode);
+        var json = await jsonResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(0, json.GetProperty("totalRegistros").GetInt64());
+        Assert.Equal(0m, json.GetProperty("totales").GetProperty("galones").GetDecimal());
+        Assert.Empty(json.GetProperty("items").EnumerateArray());
+
+        var csv = await Client.GetByteArrayAsync("api/reportes/exportar?tipo=consumo&desde=2020-01-01&hasta=2020-01-01&formato=csv");
+        Assert.Contains("ID", Encoding.UTF8.GetString(csv));
+        Assert.Contains("Galones", Encoding.UTF8.GetString(csv));
+        var xlsx = await Client.GetByteArrayAsync("api/reportes/exportar?tipo=consumo&desde=2020-01-01&hasta=2020-01-01&formato=xlsx");
+        using (var workbook = new XLWorkbook(new MemoryStream(xlsx)))
+        {
+            Assert.Equal(1, workbook.Worksheet("Detalle").LastRowUsed()!.RowNumber());
+            Assert.Equal("ID", workbook.Worksheet("Detalle").Cell(1, 1).GetString());
+        }
+        var pdf = Encoding.ASCII.GetString(await Client.GetByteArrayAsync("api/reportes/exportar?tipo=consumo&desde=2020-01-01&hasta=2020-01-01&formato=pdf"));
+        Assert.StartsWith("%PDF-1.4", pdf);
+        Assert.Contains("No hay datos para los filtros", pdf);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Client.GetAsync("api/reportes?tipo=unknown")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Client.GetAsync("api/reportes?estado=INVALIDO")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Reporte_de_movimientos_es_paginado_y_el_PDF_de_muchos_registros_tiene_varias_paginas()
+    {
+        await qa.ResetAsync();
+        await LoginAsync("qa.reports.large", "AUDITOR");
+        var catalog = await SeedCatalogAsync(stock: 60m);
+        await using (var scope = qa.Factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+            db.MovimientosInventario.AddRange(Enumerable.Range(1, 65).Select(i => new MovimientoInventario
+            {
+                TanqueId = catalog.TankId, TipoMovimiento = i % 2 == 0 ? "AJUSTE_POSITIVO" : "MERMA",
+                CantidadGalones = 1m, ExistenciaAnterior = 10m, ExistenciaNueva = 10m, ReferenciaTipo = "AJUSTE_MANUAL",
+                ReferenciaId = i.ToString(), UsuarioId = null, FechaHora = new DateTime(2026, 9, 27, 0, 0, 0, DateTimeKind.Unspecified).AddMinutes(i)
+            }));
+            await db.SaveChangesAsync();
+            // The database trigger assigns the actual UTC transaction date on INSERT.
+            // Set this fixture's operational dates afterward so it remains stable when
+            // the test run crosses midnight UTC.
+            db.ChangeTracker.Clear();
+            var seededMovements = await db.MovimientosInventario.OrderBy(x => x.Id).ToListAsync();
+            foreach (var (movement, index) in seededMovements.Select((movement, index) => (movement, index)))
+                movement.FechaHora = new DateTime(2026, 9, 27, 0, 0, 0, DateTimeKind.Unspecified).AddMinutes(index + 1);
+            await db.SaveChangesAsync();
+            Assert.Equal(65, await db.MovimientosInventario.CountAsync(x => x.FechaHora >= new DateTime(2026, 9, 27) && x.FechaHora < new DateTime(2026, 9, 28)));
+        }
+        var paged = await Client.GetFromJsonAsync<JsonElement>("api/reportes?tipo=movimientos&desde=2026-09-27&hasta=2026-09-27&pagina=2&tamanoPagina=20");
+        Assert.Equal(65, paged.GetProperty("totalRegistros").GetInt64());
+        Assert.Equal(20, paged.GetProperty("items").GetArrayLength());
+        Assert.Equal(65m, paged.GetProperty("totales").GetProperty("galones").GetDecimal());
+
+        var pdf = await Client.GetByteArrayAsync("api/reportes/exportar?tipo=movimientos&desde=2026-09-27&hasta=2026-09-27&formato=pdf");
+        var raw = Encoding.ASCII.GetString(pdf);
+        Assert.True(raw.Split("/Type /Page ", StringSplitOptions.None).Length - 1 >= 2);
+        Assert.Contains("MERMA", raw);
+        Assert.Contains("AJUSTE_POSITIVO", raw);
+    }
+
+    private async Task DispatchReportTicketAsync(IssuedTicket ticket, CatalogSeed catalog, decimal gallons)
+    {
+        var validation = await ValidateQrAsync(ticket.Token);
+        Assert.True(validation.GetProperty("valido").GetBoolean());
+        var response = await Client.PostAsJsonAsync("api/despachos", new
+        {
+            ticketId = ticket.Id.ToString(), galonesServidos = gallons, tanqueId = catalog.TankId, identidadConfirmada = true
+        });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     private async Task<(long Id, string Token)> LoginAsync(string username, string role)

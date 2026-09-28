@@ -35,6 +35,55 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.status === 204 ? undefined as T : await response.json() as T
 }
 
+export type ReportType = 'consumo' | 'tickets' | 'despachos' | 'movimientos'
+export type ReportFormat = 'csv' | 'xlsx' | 'pdf'
+export type ReportFilters = {
+  tipo: ReportType; desde?: string; hasta?: string; departamentoId?: number
+  combustibleId?: number; empleadoId?: number; vehiculoId?: number; estado?: string
+  estacionId?: number; pagina?: number; tamanoPagina?: number
+}
+export type ReportGroup = { nombre: string; galones: number; cantidad: number }
+export type ReportRow = {
+  id: number; fechaUtc: string; tipo: string; ticket: string | null; empleado: string | null
+  vehiculo: string | null; departamento: string | null; combustible: string | null
+  estacion: string | null; tanque: string | null; estado: string | null; galones: number
+  referencia: string | null; usuario: string | null
+}
+export type ReportResult = {
+  tipo: ReportType; rangoUtc: string; generadoEnUtc: string; filtros: ReportFilters
+  pagina: number; tamanoPagina: number; totalRegistros: number
+  totales: { registros: number; galones: number; despachos: number; tickets: number; solicitudes: number; inventarioActualGalones: number }
+  porDepartamento: ReportGroup[]; porCombustible: ReportGroup[]; porVehiculo: ReportGroup[]
+  porEmpleado: ReportGroup[]; porEstado: ReportGroup[]; items: ReportRow[]
+}
+
+function reportQuery(filters: ReportFilters): string {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(filters)) if (value !== undefined && value !== '') params.set(key, String(value))
+  return params.toString()
+}
+
+export async function getReport(filters: ReportFilters): Promise<ReportResult> {
+  return request<ReportResult>('/reportes?' + reportQuery(filters))
+}
+
+export async function exportReport(filters: ReportFilters, formato: ReportFormat): Promise<{ blob: Blob; filename: string }> {
+  const session = savedSession()
+  const response = await fetch(baseUrl + '/reportes/exportar?' + reportQuery(filters) + '&formato=' + formato, {
+    headers: session ? { Authorization: 'Bearer ' + session.token } : {},
+  })
+  if (!response.ok) {
+    const body = await response.text()
+    let message = body || 'Error ' + response.status
+    try { const parsed = JSON.parse(body); message = parsed.mensaje || parsed.title || parsed.detail || body } catch { /* Plain text error. */ }
+    throw new Error(message)
+  }
+  const disposition = response.headers.get('Content-Disposition') ?? ''
+  const encodedName = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
+  const quotedName = disposition.match(/filename=\"?([^\";]+)\"?/i)?.[1]
+  return { blob: await response.blob(), filename: decodeURIComponent(encodedName ?? quotedName ?? ('reporte-' + filters.tipo + '.' + formato)) }
+}
+
 export async function login(usuario: string, contrasena: string): Promise<Session> {
   const result = await request<{ token: string; id: number; nombre: string; rol: string }>('/login', { method: 'POST', body: JSON.stringify({ usuario, contrasena }) })
   const session = { token: result.token, id: result.id, name: result.nombre, role: result.rol }

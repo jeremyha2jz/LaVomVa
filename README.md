@@ -4,12 +4,13 @@ Sistema para controlar el despacho e inventario de combustible mediante tickets 
 
 Se basa en el documento *SRS Plataforma Web y Aplicación Móvil para Gestión de Tickets Digitales e Inventario de Combustible* (v1.0, agosto 2026), proyecto académico de INTEC.
 
-> Estado actual: desde la web se crean, aprueban y rechazan solicitudes, y al aprobar se emite el ticket con su QR. Además se consultan tickets, catálogos, inventario y movimientos, se registran recepciones de combustible y se exportan reportes a CSV. La app móvil valida QR y puede registrar despachos con confirmación explícita de identidad. La API exige inicio de sesión y aplica roles en operaciones protegidas. Esta versión sigue siendo académica; no la expongas en una red pública ni la uses con datos reales.
+> Estado actual: desde la web se crean, aprueban y rechazan solicitudes, y al aprobar se emite el ticket con su QR. También se consultan tickets, catálogos, inventario, movimientos y reportes con datos de PostgreSQL; los reportes se pueden exportar a CSV, Excel y PDF. La app móvil valida QR y puede registrar despachos con confirmación explícita de identidad. La API exige inicio de sesión y aplica roles en operaciones protegidas. Esta versión sigue siendo académica; no la expongas en una red pública ni la uses con datos reales.
 
 ## Tecnologías
 
 - .NET 8 y ASP.NET Core Web API (controladores)
 - Entity Framework Core 8 y Npgsql
+- ClosedXML para exportar archivos XLSX
 - PostgreSQL 14 o superior (probado con PostgreSQL 18) y pgAdmin 4
 - JWT Bearer para la sesión y PBKDF2-SHA256 (100 000 iteraciones) para las contraseñas
 - SignalR autenticado para propagar cambios confirmados de inventario a las sesiones web conectadas
@@ -41,7 +42,7 @@ El comando crea una instancia PostgreSQL temporal, carga `DATABASE_FINALLL`, eje
 - Tickets digitales: listado con búsqueda y filtro por estado; administradores y supervisores pueden ver el QR y anular tickets elegibles indicando el motivo.
 - Inventario: tarjetas por tanque (existencia, capacidad, nivel crítico, ocupación), últimos movimientos y registro de recepciones. Existencias, movimientos y alertas se actualizan en vivo mediante SignalR después del commit de PostgreSQL.
 - Recepciones y movimientos: historial filtrable por tipo y exportación a CSV.
-- Reportes: filtros por fecha, departamento y combustible; totales por departamento y por combustible; exportación de tickets a CSV.
+- Reportes: consulta de consumo, tickets, despachos y movimientos desde la API; filtros por fechas UTC, departamento, combustible, empleado, vehículo, estado y estación; totales y agregaciones paginadas; descarga de CSV, Excel y PDF con los mismos filtros.
 - Catálogos: consulta, creación, edición y desactivación de empleados, vehículos y departamentos según el rol.
 - Campana de notificaciones persistidas, cargada mediante REST y sincronizada al reconectar. También cuenta tickets vencidos o por vencer, pero la base nunca les asigna esos estados, así que en modo conectado no aparecen.
 
@@ -58,6 +59,7 @@ El comando crea una instancia PostgreSQL temporal, carga `DATABASE_FINALLL`, eje
 - Recepciones por proveedor y factura, con uno o varios tanques; ajustes positivos, negativos y mermas.
 - Inventario por tanque y últimos 100 movimientos, con existencia anterior y nueva en cada uno. La base impide existencias negativas o por encima de la capacidad.
 - Hub SignalR autenticado en `/hubs/inventory`: emite `InventoryUpdated`, `InventoryMovementCreated` y `CriticalInventoryChanged` usando el libro mayor persistido por PostgreSQL. Requiere el JWT de la sesión; solo se aceptan eventos de movimientos después del commit. Todos los roles autenticados pueden leer inventario en REST y, por tanto, pueden conectar al Hub.
+- Reportes autenticados: `GET /api/reportes` acepta `tipo` (`consumo`, `tickets`, `despachos`, `movimientos`), `desde`, `hasta`, `departamentoId`, `combustibleId`, `empleadoId`, `vehiculoId`, `estado`, `estacionId`, `pagina` y `tamanoPagina`. `GET /api/reportes/exportar` acepta los mismos filtros, excepto paginación, y `formato=csv|xlsx|pdf`. Todos los roles autenticados pueden consultarlos; la fecha inicial/final es UTC e inclusiva. Exportación limitada a 10 000 filas por archivo.
 
 **App móvil del despachador** (`app-movil/`)
 
@@ -89,7 +91,7 @@ Para habilitar proveedores configura SMTP mediante `Smtp__Host`, `Smtp__Port`, `
 
 **RF-15 y RF-17 — Inventario y movimientos.** Web → "Inventario" y "Recepciones y movimientos". La web recibe por SignalR cambios de despacho, recepción, ajuste y merma sin recargar. La conexión se reconecta con espera progresiva; al restablecerse consulta inventario y movimientos por REST para recuperar cambios ocurridos durante la desconexión. Los estados y el historial de la base siguen siendo la fuente de verdad.
 
-**RF-19 y RF-20 — Reportes.** Web → "Reportes": filtra y pulsa "Exportar CSV".
+**RF-19 y RF-20 — Reportes.** Web → "Reportes": elige consumo, tickets, despachos o movimientos, aplica filtros y descarga CSV, Excel o PDF. La API entrega filas, filtros y agregaciones; la pantalla y los archivos utilizan el mismo resultado. API: `GET /api/reportes` y `GET /api/reportes/exportar?formato=csv|xlsx|pdf`. Requiere sesión autenticada; todos los roles con acceso a la aplicación pueden consultar reportes.
 
 **RF-22 — Tablero.** Web → "Resumen".
 
@@ -107,7 +109,7 @@ El detalle requisito por requisito está en el documento de brechas frente al SR
 - **Zonas horarias mezcladas.** El cierre define el día operacional como UTC, desde las 00:00:00 inclusive hasta las 00:00:00 del día siguiente exclusive. La base asigna nuevos movimientos y despachos a UTC. Otras fechas del sistema aún usan hora local de PostgreSQL; la web puede mostrarlas con desplazamiento.
 - **Migración de firma QR.** Los QR existentes firmados con el formato anterior no validan con el HMAC nuevo; antes de desplegar sobre una base con tickets activos, hay que definir una reemisión controlada.
 - **Estados del ticket.** `PROXIMO_A_VENCER` y `VENCIDO` se derivan de la fecha de vencimiento; `ANULADO`, `PENDIENTE` y `ENVIADO` se persisten. `ENVIADO` requiere confirmación del proveedor en todos los canales solicitados; los resultados de red inciertos requieren conciliación manual. El indicador derivado de vencimiento puede prevalecer sobre el estado persistido en la vista.
-- **Reportes generales.** Los reportes generales se calculan en el navegador; el PDF disponible es el acta de cierre diario.
+- **Límite de exportación.** Cada exportación general admite hasta 10 000 filas; aplica filtros para generar archivos más pequeños. La consulta web se pagina hasta 200 filas por página.
 - **Solicitudes automáticas y recurrentes:** se guarda el tipo, pero no hay programación que las genere.
 - **Sin transferencias entre tanques:** la base las permite, pero no hay endpoint.
 - **Catálogos adicionales:** estaciones, tanques y proveedores se crean desde "Administración". La edición y desactivación de esos catálogos aún requiere la API.

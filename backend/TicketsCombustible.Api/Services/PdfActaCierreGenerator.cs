@@ -8,6 +8,13 @@ namespace TicketsCombustible.Api.Services;
 /// <summary>Builds a small, searchable PDF act from a persisted closed record without external runtime dependencies.</summary>
 public static class PdfActaCierreGenerator
 {
+    public static byte[] GenerarDocumento(IEnumerable<string> lines)
+    {
+        var wrapped = lines.SelectMany(line => Wrap(Clean(line), 105)).DefaultIfEmpty("Sin datos").ToArray();
+        var pages = wrapped.Chunk(48).Select(page => string.Join("\n", page)).ToArray();
+        return BuildPdf(pages);
+    }
+
     public static byte[] Generar(CierreDiario cierre, string estacion, string responsable)
     {
         var lines = new List<string>
@@ -69,6 +76,13 @@ public static class PdfActaCierreGenerator
     }
 
     private static string Escape(string value) => value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("(", "\\(", StringComparison.Ordinal).Replace(")", "\\)", StringComparison.Ordinal);
+
+    private static IEnumerable<string> Wrap(string value, int width)
+    {
+        if (value.Length <= width) { yield return value; yield break; }
+        for (var offset = 0; offset < value.Length; offset += width)
+            yield return value.Substring(offset, Math.Min(width, value.Length - offset));
+    }
 
     private static byte[] BuildPdf(IReadOnlyList<string> pages)
     {
