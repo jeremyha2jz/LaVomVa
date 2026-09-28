@@ -1,0 +1,53 @@
+// src/pages/despacho.js
+import { registrarDespacho } from '../services/ticketService.js';
+import { escapeHtml } from '../services/html.js';
+
+export function renderDespacho(container, ticket) {
+  container.innerHTML = `
+    <div class="despacho-page">
+      <h1>Registrar despacho</h1>
+      <p><strong>Ticket:</strong> ${escapeHtml(ticket.id)}</p>
+      <form id="despacho-form">
+        <label for="galones">Galones servidos</label>
+        <input type="number" id="galones" step="0.1" min="0.1" max="${escapeHtml(ticket.cantidadAutorizada)}" required />
+        <label for="observaciones">Observaciones</label>
+        <textarea id="observaciones" placeholder="Opcional"></textarea>
+        <label><input type="checkbox" id="identidad-confirmada" required /> Confirmo que verifiqué la identidad del conductor.</label>
+        <button type="submit">Confirmar despacho</button>
+      </form>
+      <p id="despacho-estado"></p>
+    </div>
+  `;
+
+  const form = container.querySelector('#despacho-form');
+  const estadoMsg = container.querySelector('#despacho-estado');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const galones = parseFloat(container.querySelector('#galones').value);
+    const observaciones = container.querySelector('#observaciones').value;
+    const identidadConfirmada = container.querySelector('#identidad-confirmada').checked;
+
+    // Validación extra en JS: el "min" del HTML se puede saltar editando el DOM,
+    // así que revisamos también aquí antes de mandar el dato.
+    if (isNaN(galones) || galones <= 0) {
+      estadoMsg.textContent = "La cantidad de galones debe ser mayor a 0";
+      return;
+    }
+    if (galones > ticket.cantidadAutorizada) {
+      estadoMsg.textContent = "No puedes servir más de lo autorizado";
+      return;
+    }
+    if (!identidadConfirmada) {
+      estadoMsg.textContent = "Debes confirmar la identidad del conductor";
+      return;
+    }
+
+    try {
+      const resultado = await registrarDespacho(ticket.id, galones, observaciones, identidadConfirmada);
+      estadoMsg.textContent = resultado.mensaje;
+    } catch (err) {
+      estadoMsg.textContent = err.message || "Error al registrar el despacho";
+    }
+  });
+}
