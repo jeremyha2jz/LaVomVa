@@ -1816,3 +1816,287 @@ code {
   .consulta-page .brand-logo { height: 40px; }
   .consulta-page .content { padding-top: 18px; }
 }
+
+/* Perfil: estilos aislados de las demás pantallas. */
+.perfil-page {
+  /* Marca */
+  --green: #008C45;
+  --green-dark: #006C3D;
+  --green-light: #17B96B;
+  --red: #CD212A;
+  --red-dark: #A9151D;
+  --red-light: #F22B35;
+
+  /* Texto y superficies */
+  --ink: #0F1524;
+  --muted: #748197;
+  --line: #DCE3EB;
+  --surface: #FFFFFF;
+  --soft: #F7F9FC;
+
+  /* Cabecera (degradado verde -> rojo) */
+  --hdr-a: #005f38;
+  --hdr-b: #007d47;
+  --hdr-c: #b82c2a;
+  --hdr-d: #ef1723;
+  --hdr-strip-a: #00b964;
+  --hdr-strip-b: #2de38b;
+  --hdr-strip-c: #ef202e;
+  --hdr-strip-d: #ff2031;
+
+  /* Botones */
+  --btn-green-a: #007d47;
+  --btn-green-b: #12b968;
+  --btn-red-a: #b91620;
+  --btn-red-b: #ef2d36;
+
+  /* Estados de ticket */
+  --state-pending: #17b96b;
+  --state-expired: #ef2832;
+  --state-used: #9aa4b2;
+
+  /* Franja decorativa inferior */
+  --art-mint: #c9e7dc;
+  --art-green: #007d47;
+  --art-green-deep: #006b3e;
+  --art-red: #e61625;
+  --art-red-deep: #c8101d;
+
+  /* Medidas */
+  --nav-h: 78px;
+  --header-h: 150px;
+  --content-max: 430px;
+  --radius: 28px;
+  --radius-md: 18px;
+}
+
+
+/* ---------- Cabecera ---------- */
+.perfil-page .header {
+  min-height: calc(var(--header-h) + env(safe-area-inset-top));
+  padding-top: max(10px, env(safe-area-inset-top));
+  position: relative;
+  overflow: hidden;
+  color: #fff;
+  background:
+    radial-gradient(circle at 53% 72%, rgba(255, 255, 255, .12), transparent 24%),
+    linear-gradient(116deg, var(--hdr-a) 0%, var(--hdr-b) 40%, var(--hdr-c) 62%, var(--hdr-d) 100%);
+  border-radius: 0 0 50% 50% / 0 0 17% 17%;
+  isolation: isolate;
+}
+.perfil-page .header::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: -8%; right: -8%; bottom: -8px;
+  height: 23px;
+  background: linear-gradient(110deg, var(--hdr-strip-a) 0%, var(--hdr-strip-b) 42%, var(--hdr-strip-c) 60%, var(--hdr-strip-d) 100%);
+  border-radius: 0 0 50% 50% / 0 0 45% 45%;
+}
+.perfil-page .header::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(135deg, transparent 40%, rgba(255, 255, 255, .08) 52%, transparent 62%);
+  pointer-events: none;
+}
+.perfil-page .brand {
+  min-height: var(--header-h);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 13px 20px 28px;
+  text-align: center;
+}
+.perfil-page .brand-logo { height: 46px; width: auto; display: block; filter: drop-shadow(0 4px 8px rgba(0, 0, 0, .18)); }
+.perfil-page .brand-title {
+  margin: 8px 0 0;
+  font-size: clamp(20px, 5.8vw, 25px);
+  line-height: 1.08;
+  letter-spacing: -.55px;
+  font-weight: 800;
+}
+.perfil-page .brand-subtitle { margin: 5px 0 0; font-size: clamp(13px, 3.6vw, 15px); line-height: 1.2; }
+
+/* ---------- Contenido ---------- */
+.perfil-page .main {
+  min-height: calc(100dvh - var(--header-h) - var(--nav-h));
+  position: relative;
+  overflow: hidden;
+  background: var(--surface);
+}
+.perfil-page .content {
+  width: min(100%, var(--content-max));
+  margin: 0 auto;
+  padding: 24px 26px 150px;
+  position: relative;
+  z-index: 2;
+}
+.perfil-page .screen-title {
+  margin: 0;
+  color: var(--ink);
+  font-size: clamp(29px, 8vw, 38px);
+  line-height: 1.06;
+  font-weight: 800;
+  letter-spacing: -1.2px;
+}
+.perfil-page .screen-subtitle { margin: 7px 0 20px; color: var(--muted); font-size: 14px; line-height: 1.45; }
+
+
+/* ---------- Decoración inferior (una sola para todas las pantallas con menú) ---------- */
+.perfil-page .bottom-art { position: absolute; left: 0; right: 0; bottom: 0; height: 145px; z-index: 0; pointer-events: none; }
+.perfil-page .bottom-art svg { width: 100%; height: 100%; display: block; }
+.perfil-page .bottom-art .a1 { fill: var(--art-mint); }
+.perfil-page .bottom-art .a2 { fill: var(--art-green); }
+.perfil-page .bottom-art .a3 { fill: var(--art-green-deep); opacity: .88; }
+.perfil-page .bottom-art .a4 { fill: var(--art-red); }
+.perfil-page .bottom-art .a5 { fill: var(--art-red-deep); opacity: .85; }
+.perfil-page .watermark {
+  position: absolute;
+  right: max(20px, calc((100vw - var(--content-max)) / 2 + 18px));
+  bottom: 27px;
+  width: 116px; height: 116px;
+  z-index: 1;
+  color: #4aa779;
+  opacity: .11;
+  transform: rotate(-12deg);
+  pointer-events: none;
+}
+
+/* ---------- Menú inferior ---------- */
+.perfil-page .nav-wrap {
+  position: fixed;
+  z-index: 20;
+  left: 0; right: 0; bottom: 0;
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--surface);
+  border-top: 1px solid #e7e8eb;
+  box-shadow: 0 -8px 22px rgba(15, 21, 36, .035);
+}
+.perfil-page .nav { width: min(100%, var(--content-max)); height: var(--nav-h); margin: 0 auto; display: grid; grid-template-columns: repeat(3, 1fr); padding: 8px 16px 7px; }
+.perfil-page .nav-item { position: relative; border: 0; background: transparent; color: #7c899d; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 2px; font-size: 12px; line-height: 1; cursor: pointer; }
+.perfil-page .nav-item svg { width: 27px; height: 27px; }
+.perfil-page .nav-item span { margin-top: 2px; font-weight: 500; }
+.perfil-page .nav-item.active { color: #008e4d; }
+.perfil-page .nav-item.active::after { content: ""; position: absolute; bottom: 0; width: 54px; height: 4px; border-radius: 999px; background: #008e4d; }
+
+
+#app:has(> .perfil-page) { width: 100%; border: 0; text-align: left; }
+.perfil-page, .perfil-page *, .perfil-page *::before, .perfil-page *::after { box-sizing: border-box; }
+.perfil-page {
+  min-height: 100svh;
+  min-height: 100dvh;
+  padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
+  position: relative;
+  background: #fff;
+  color: var(--ink);
+  color-scheme: light;
+  font: 16px/1.45 "Poppins", system-ui, sans-serif;
+  letter-spacing: normal;
+}
+.perfil-page button { font-family: inherit; touch-action: manipulation; }
+.perfil-page :focus-visible { outline: 3px solid rgba(0,140,69,.5); outline-offset: 3px; }
+.perfil-page .brand-title { color: #fff; }
+.perfil-page .screen-title { font-family: inherit; }
+.perfil-page .nav-item:disabled { cursor: default; }
+.perfil-page .nav-item.active { color: var(--green); }
+.perfil-page .nav-item.active::after { background: var(--green); }
+@media (max-width: 390px) {
+  .perfil-page .content { padding-left: 18px; padding-right: 18px; }
+}
+@media (max-height: 700px) {
+  .perfil-page { --header-h: 134px; --nav-h: 72px; }
+  .perfil-page .brand { padding-bottom: 22px; }
+  .perfil-page .brand-logo { height: 40px; }
+  .perfil-page .content { padding-top: 18px; }
+}
+.perfil-page .card{
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 28px rgba(15, 21, 36, .055);
+}
+
+/* ---------- Botones (forma de píldora) ---------- */
+.perfil-page .action{
+  width: 100%;
+  min-height: 54px;
+  border-radius: 999px;
+  border: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 16px;
+  cursor: pointer;
+  transition: transform .12s ease, filter .12s ease, box-shadow .12s ease;
+}
+.perfil-page .action:active{ transform: scale(.985); }
+.perfil-page .action svg{ width: 24px; height: 24px; flex: 0 0 auto; }
+
+
+.perfil-page .action-secondary{ color: #65728a; background: var(--surface); border: 1.5px solid #77849a; }
+.perfil-page .action-secondary svg{ width: 20px; height: 20px; }
+
+/* ---------- Filas de información ---------- */
+.perfil-page .info-row{
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  gap: 13px;
+  align-items: center;
+  padding: 11px 0;
+  border-bottom: 1px solid #e8edf2;
+}
+.perfil-page .info-row:last-child{ border-bottom: 0; }
+.perfil-page .info-icon{ width: 29px; height: 29px; color: #5f6f86; }
+.perfil-page .info-label{ color: #7b889e; font-size: 11px; line-height: 1.1; font-weight: 700; text-transform: uppercase; letter-spacing: .35px; }
+.perfil-page .info-value{ margin-top: 4px; color: var(--ink); font-size: 16px; line-height: 1.25; font-weight: 500; }
+
+/* ---------- Perfil ---------- */
+.perfil-page .profile-card{ padding: 24px; text-align: center; }
+.perfil-page .avatar{ width: 82px; height: 82px; margin: 0 auto 14px; border-radius: 50%; display: grid; place-items: center; color: var(--green); background: #e6f8ee; }
+.perfil-page .avatar svg{ width: 44px; height: 44px; }
+.perfil-page .profile-name{ font-size: 23px; font-weight: 800; }
+.perfil-page .profile-role{ margin-top: 4px; color: var(--muted); font-size: 14px; }
+.perfil-page .profile-info{ margin: 22px 0; text-align: left; }
+
+
+.perfil-page .info-row { grid-template-columns: 36px minmax(0, 1fr); }
+.perfil-page .info-value { overflow-wrap: anywhere; }
+.perfil-page .logout-backdrop {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(8, 15, 24, .62);
+  overflow-y: auto;
+}
+.perfil-page .logout-backdrop[hidden] { display: none; }
+.perfil-page .logout-modal {
+  width: min(100%, 390px);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 26px 22px 22px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .3);
+  text-align: center;
+}
+.perfil-page .logout-modal h2 { margin: 4px 0 8px; color: var(--ink); font-family: inherit; font-size: clamp(24px, 7vw, 28px); line-height: 1.08; font-weight: 800; }
+.perfil-page .logout-modal p { margin: 0 0 20px; color: var(--muted); font-size: 15px; line-height: 1.5; }
+.perfil-page .logout-actions { display: grid; gap: 10px; }
+.perfil-page .action-danger { color: #fff; background: linear-gradient(135deg, var(--btn-red-a), var(--btn-red-b)); box-shadow: 0 9px 22px rgba(205, 33, 42, .2); }
+.perfil-page .action { padding: 12px; line-height: 1.35; }
+@media (max-width: 390px) {
+  .perfil-page .profile-card { padding: 22px 18px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .perfil-page .action { transition: none; }
+}

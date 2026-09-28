@@ -1,3 +1,4 @@
+import { renderPerfil } from './perfil.js';
 // src/pages/despacho.js
 import { registrarDespacho } from '../services/ticketService.js';
 import { renderEscaner } from './escaner.js';
@@ -46,7 +47,7 @@ export function renderDespacho(container, ticket) {
   <path class="a5" d="M320 145C365 132 401 119 430 103V145Z"/>
 </svg></div>
 </main>
-<div class="nav-wrap"><nav class="nav" aria-label="Navegación principal"><button type="button" class="nav-item active" aria-current="page" id="despacho-ir-escaner"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"/></svg><span>Escanear</span></button><button type="button" class="nav-item" id="despacho-ir-consulta"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 4h10M7 8h10M7 12h7M6 2.8c.8 0 1.2.9 2 .9s1.2-.9 2-.9 1.2.9 2 .9 1.2-.9 2-.9 1.2.9 2 .9 1.2-.9 2-.9V21c-.8 0-1.2-.9-2-.9s-1.2.9-2 .9-1.2-.9-2-.9-1.2.9-2 .9-1.2-.9-2-.9-1.2.9-2 .9V2.8Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Tickets</span></button><button type="button" class="nav-item" disabled title="Perfil aún no disponible"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="2"/><path d="M4.5 21c.9-4.3 3.5-6.5 7.5-6.5s6.6 2.2 7.5 6.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Perfil</span></button></nav></div>
+<div class="nav-wrap"><nav class="nav" aria-label="Navegación principal"><button type="button" class="nav-item active" aria-current="page" id="despacho-ir-escaner"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"/></svg><span>Escanear</span></button><button type="button" class="nav-item" id="despacho-ir-consulta"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 4h10M7 8h10M7 12h7M6 2.8c.8 0 1.2.9 2 .9s1.2-.9 2-.9 1.2.9 2 .9 1.2-.9 2-.9 1.2.9 2 .9 1.2-.9 2-.9V21c-.8 0-1.2-.9-2-.9s-1.2.9-2 .9-1.2-.9-2-.9-1.2.9-2 .9-1.2-.9-2-.9-1.2.9-2 .9V2.8Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Tickets</span></button><button type="button" class="nav-item" id="ir-perfil"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="2"/><path d="M4.5 21c.9-4.3 3.5-6.5 7.5-6.5s6.6 2.2 7.5 6.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Perfil</span></button></nav></div>
 
 <div class="modal-backdrop" id="modal-confirmacion" aria-hidden="true">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="modal-texto">
@@ -71,6 +72,7 @@ export function renderDespacho(container, ticket) {
   const btnCancelar = container.querySelector('#cancelar-despacho');
   const btnEscaner = container.querySelector('#despacho-ir-escaner');
   const btnTickets = container.querySelector('#despacho-ir-consulta');
+  const btnPerfil = container.querySelector('#ir-perfil');
   const fondoModal = [container.querySelector('.header'), container.querySelector('.main'), container.querySelector('.nav-wrap')];
   let ocupado = false;
   let registrado = false;
@@ -141,7 +143,7 @@ export function renderDespacho(container, ticket) {
       if (!confirmado) return;
 
       form.setAttribute('aria-busy', 'true');
-      [btnCancelar, btnEscaner, btnTickets].forEach(boton => { boton.disabled = true; });
+      [btnCancelar, btnEscaner, btnTickets, btnPerfil].forEach(boton => { boton.disabled = true; });
       const resultado = await registrarDespacho(ticket.id, galones, observaciones);
       registrado = true;
       estadoMsg.textContent = resultado.mensaje;
@@ -182,7 +184,7 @@ export function renderDespacho(container, ticket) {
       ocupado = false;
       btnConfirmar.disabled = registrado;
       form.setAttribute('aria-busy', 'false');
-      [btnCancelar, btnEscaner, btnTickets].forEach(boton => { boton.disabled = false; });
+      [btnCancelar, btnEscaner, btnTickets, btnPerfil].forEach(boton => { boton.disabled = false; });
     }
   });
 
@@ -192,6 +194,9 @@ export function renderDespacho(container, ticket) {
   });
   btnEscaner.addEventListener('click', () => {
     if (!ocupado) renderEscaner(container);
+  });
+  btnPerfil.addEventListener('click', () => {
+    if (!ocupado) renderPerfil(container);
   });
   btnTickets.addEventListener('click', () => {
     if (!ocupado) renderConsultaTickets(container);
