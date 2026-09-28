@@ -67,6 +67,6 @@ export interface User { id: number; name: string; username: string; email: strin
 export interface FuelType { id: number; name: string }
 export interface Supplier { id: number; name: string; rnc: string }
 export interface Station { id: number; name: string; location: string }
-export interface Session { token: string; id: number; name: string; role: string }
+export interface Session { token: string; refreshToken?: string; expiresAt?: string; id: number; name: string; role: string }
 export interface Catalogs { employees: Employee[]; vehicles: Vehicle[]; departments: Department[]; fuelTypes: FuelType[]; suppliers: Supplier[]; stations: Station[] }
 export interface ToastMessage { id: number; title: string; description: string; tone: 'success' | 'warning' | 'error' | 'info' }

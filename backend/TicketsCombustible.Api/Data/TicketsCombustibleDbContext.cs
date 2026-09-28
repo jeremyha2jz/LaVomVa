@@ -20,6 +20,7 @@ public class TicketsCombustibleDbContext(DbContextOptions<TicketsCombustibleDbCo
     public DbSet<Usuario> Usuarios => Set<Usuario>();
     public DbSet<Rol> Roles => Set<Rol>();
     public DbSet<UsuarioRol> UsuarioRoles => Set<UsuarioRol>();
+    public DbSet<SesionUsuario> SesionesUsuario => Set<SesionUsuario>();
     public DbSet<MovimientoInventario> MovimientosInventario => Set<MovimientoInventario>();
     public DbSet<Proveedor> Proveedores => Set<Proveedor>();
     public DbSet<RecepcionCombustible> Recepciones => Set<RecepcionCombustible>();
@@ -62,6 +63,13 @@ public class TicketsCombustibleDbContext(DbContextOptions<TicketsCombustibleDbCo
         modelBuilder.Entity<Usuario>().ToTable("usuarios").HasKey(x => x.Id);
         modelBuilder.Entity<Rol>().ToTable("roles").HasKey(x => x.Id);
         modelBuilder.Entity<UsuarioRol>().ToTable("usuario_roles").HasKey(x => new { x.UsuarioId, x.RolId });
+        modelBuilder.Entity<SesionUsuario>().ToTable("sesiones_usuario").HasKey(x => x.Id);
+        modelBuilder.Entity<SesionUsuario>().HasIndex(x => x.HashRefreshToken).IsUnique();
+        modelBuilder.Entity<SesionUsuario>().HasIndex(x => new { x.FamiliaId, x.RevocadoEn });
+        modelBuilder.Entity<SesionUsuario>().Property(x => x.CreadoEn).HasColumnType("timestamp with time zone");
+        modelBuilder.Entity<SesionUsuario>().Property(x => x.ExpiraEn).HasColumnType("timestamp with time zone");
+        modelBuilder.Entity<SesionUsuario>().Property(x => x.RevocadoEn).HasColumnType("timestamp with time zone");
+        modelBuilder.Entity<SesionUsuario>().Property(x => x.UltimoUsoEn).HasColumnType("timestamp with time zone");
         modelBuilder.Entity<MovimientoInventario>().ToTable("movimientos_inventario").HasKey(x => x.Id);
         modelBuilder.Entity<MovimientoInventario>().Property(x => x.FechaHora).HasColumnType("timestamp without time zone");
         modelBuilder.Entity<Proveedor>().ToTable("proveedores").HasKey(x => x.Id);

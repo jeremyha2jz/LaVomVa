@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
-import { api, clearSession, loadLiveData, login as apiLogin, register as apiRegister, savedSession } from '../services/api'
+import { api, loadLiveData, login as apiLogin, logout as apiLogout, register as apiRegister, savedSession } from '../services/api'
 import type { Catalogs, FuelRequest, InventoryMovement, Session, Tank, Ticket, ToastMessage } from '../types'
 import { applyInventoryUpdate, applyMovementCreated, initialTankMovementIds, isNewerTankMovement, createInventoryRealtimeClient } from '../services/inventoryRealtime'
 
@@ -114,7 +114,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   async function login(username: string, password: string) { setSession(await apiLogin(username, password)) }
   async function register(username: string, email: string, name: string, password: string) { await apiRegister(username, email, name, password) }
-  function logout() { clearSession(); setSession(null); lastMovementByTank.current.clear(); liveInventoryEvents.current.clear(); setRequests([]); setTickets([]); setTanks([]); setMovements([]); setCatalogs(emptyCatalogs); setError(null) }
+  function logout() { void apiLogout(); setSession(null); lastMovementByTank.current.clear(); liveInventoryEvents.current.clear(); setRequests([]); setTickets([]); setTanks([]); setMovements([]); setCatalogs(emptyCatalogs); setError(null) }
+
+  useEffect(() => {
+    const onExpired = () => logout()
+    window.addEventListener('lavomva-session-expired', onExpired)
+    return () => window.removeEventListener('lavomva-session-expired', onExpired)
+  }, [])
 
   async function addRequest(item: NewRequest) {
     if (!item.employeeId || !item.vehicleId || !item.departmentId || !item.fuelTypeId) throw new Error('Selecciona datos válidos de los catálogos.')

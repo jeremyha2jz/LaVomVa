@@ -17,12 +17,52 @@ export function savedSession(): Session | null {
 
 export function clearSession() { sessionStorage.removeItem(SESSION_KEY) }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const session = savedSession()
-  const response = await fetch(`${baseUrl}${path}`, {
+let refreshInFlight: Promise<Session | null> | null = null
+
+async function refreshSession(): Promise<Session | null> {
+  if (refreshInFlight) return refreshInFlight
+  refreshInFlight = (async () => {
+    const current = savedSession()
+    if (!current?.refreshToken) return null
+    try {
+      const response = await fetch(`${baseUrl}/login/refresh`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: current.refreshToken }),
+      })
+      if (!response.ok) throw new Error('refresh failed')
+      const next = await response.json() as { token: string; refreshToken: string; expiresAt: string }
+      const updated = { ...current, ...next }
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify(updated))
+      return updated
+    } catch {
+      clearSession()
+      window.dispatchEvent(new Event('lavomva-session-expired'))
+      return null
+    }
+  })().finally(() => { refreshInFlight = null })
+  return refreshInFlight
+}
+
+async function authenticatedFetch(path: string, init?: RequestInit): Promise<Response> {
+  const send = (token?: string) => fetch(`${baseUrl}${path}`, {
     ...init,
-    headers: { ...(init?.body ? { 'Content-Type': 'application/json' } : {}), ...(session ? { Authorization: `Bearer ${session.token}` } : {}), ...init?.headers },
+    headers: { ...(init?.body ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}), ...init?.headers },
   })
+  const session = savedSession()
+  const response = await send(session?.token)
+  if (response.status !== 401 || path === '/login' || path.startsWith('/login/')) return response
+  if (!session) return response
+  if (!session.refreshToken) {
+    clearSession()
+    window.dispatchEvent(new Event('lavomva-session-expired'))
+    return response
+  }
+  const updated = await refreshSession()
+  return updated ? send(updated.token) : response
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await authenticatedFetch(path, init)
   if (!response.ok) {
     if ([502, 503, 504].includes(response.status)) {
       throw new Error('El servidor de la aplicación no está disponible. Inténtalo de nuevo cuando la API esté en funcionamiento.')
@@ -68,10 +108,7 @@ export async function getReport(filters: ReportFilters): Promise<ReportResult> {
 }
 
 export async function exportReport(filters: ReportFilters, formato: ReportFormat): Promise<{ blob: Blob; filename: string }> {
-  const session = savedSession()
-  const response = await fetch(baseUrl + '/reportes/exportar?' + reportQuery(filters) + '&formato=' + formato, {
-    headers: session ? { Authorization: 'Bearer ' + session.token } : {},
-  })
+  const response = await authenticatedFetch('/reportes/exportar?' + reportQuery(filters) + '&formato=' + formato)
   if (!response.ok) {
     const body = await response.text()
     let message = body || 'Error ' + response.status
@@ -85,10 +122,18 @@ export async function exportReport(filters: ReportFilters, formato: ReportFormat
 }
 
 export async function login(usuario: string, contrasena: string): Promise<Session> {
-  const result = await request<{ token: string; id: number; nombre: string; rol: string }>('/login', { method: 'POST', body: JSON.stringify({ usuario, contrasena }) })
-  const session = { token: result.token, id: result.id, name: result.nombre, role: result.rol }
+  const result = await request<{ token: string; refreshToken: string; expiresAt: string; id: number; nombre: string; rol: string }>('/login', { method: 'POST', body: JSON.stringify({ usuario, contrasena }) })
+  const session = { token: result.token, refreshToken: result.refreshToken, expiresAt: result.expiresAt, id: result.id, name: result.nombre, role: result.rol }
   sessionStorage.setItem(SESSION_KEY, JSON.stringify(session))
   return session
+}
+
+export async function logout(): Promise<void> {
+  const session = savedSession()
+  clearSession()
+  if (session?.refreshToken) {
+    try { await fetch(`${baseUrl}/login/logout`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken: session.refreshToken }) }) } catch { /* Local logout remains complete if the API is unreachable. */ }
+  }
 }
 
 export async function register(usuario: string, correo: string, nombreCompleto: string, contrasena: string): Promise<void> {
@@ -96,10 +141,7 @@ export async function register(usuario: string, correo: string, nombreCompleto: 
 }
 
 export async function ticketQr(id: string): Promise<Blob> {
-  const session = savedSession()
-  const response = await fetch(`${baseUrl}/tickets/${encodeURIComponent(id)}/qr`, {
-    headers: session ? { Authorization: `Bearer ${session.token}` } : {},
-  })
+  const response = await authenticatedFetch(`/tickets/${encodeURIComponent(id)}/qr`)
   if (!response.ok) throw new Error('No se pudo cargar el QR del ticket.')
   return response.blob()
 }
@@ -183,10 +225,7 @@ export type CierreRow = {
 }
 
 export async function downloadCierrePdf(id: number): Promise<Blob> {
-  const session = savedSession()
-  const response = await fetch(`${baseUrl}/cierres-diarios/${encodeURIComponent(id)}/pdf`, {
-    headers: session ? { Authorization: `Bearer ${session.token}` } : {},
-  })
+  const response = await authenticatedFetch(`/cierres-diarios/${encodeURIComponent(id)}/pdf`)
   if (!response.ok) {
     const body = await response.text()
     let message = body || `Error ${response.status}`

@@ -118,7 +118,7 @@ public sealed class ApiEndpointMatrixTests(QaFixture qa)
         }).ToArray();
 
         Assert.Equal(registered.Length, registered.Select(x => x.Key).Distinct(StringComparer.OrdinalIgnoreCase).Count());
-        Assert.Equal(67, registered.Length);
+        Assert.Equal(71, registered.Length);
         Assert.Equal(Matrix.Keys.Order(StringComparer.OrdinalIgnoreCase), registered.Select(x => x.Key).Order(StringComparer.OrdinalIgnoreCase));
 
         foreach (var item in registered)
@@ -238,7 +238,8 @@ public sealed class ApiEndpointMatrixTests(QaFixture qa)
         void Group(string method, string[]? roles, params string[] paths) { foreach (var path in paths) Add(method, path, roles); }
 
         Group("GET", AdminAuditor, "api/auditoria");
-        Group("POST", [], "api/login", "api/login/registro", "api/login/inicializar-admin");
+        Group("POST", [], "api/login", "api/login/registro", "api/login/inicializar-admin", "api/login/refresh", "api/login/logout");
+        Group("POST", null, "api/login/logout-all", "api/login/cambiar-contrasena");
         Group("GET", null, "api/catalogos/departamentos", "api/catalogos/empleados", "api/catalogos/vehiculos", "api/catalogos/tipos-combustible", "api/catalogos/tanques", "api/catalogos/estaciones", "api/catalogos/roles");
         Group("GET", AdminSupervisorDispatcherAuditor, "api/cierres-diarios/resumen", "api/cierres-diarios", "api/cierres-diarios/{id}", "api/cierres-diarios/{id}/pdf");
         Group("POST", AdminSupervisorDispatcher, "api/cierres-diarios");

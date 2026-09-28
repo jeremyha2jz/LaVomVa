@@ -92,11 +92,11 @@ public sealed class ApiIntegrationTests(QaFixture qa)
         alteredParts[2] = (alteredParts[2][0] == 'A' ? "B" : "A") + alteredParts[2][1..];
         Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", string.Join('.', alteredParts));
         Assert.Equal(HttpStatusCode.Unauthorized, (await Client.GetAsync("api/catalogos/roles")).StatusCode);
-        var wrongRole = new JwtSecurityToken(claims: new[] { new Claim(ClaimTypes.NameIdentifier, admin.Id.ToString()), new Claim(ClaimTypes.Role, "ADMINISTRADOR"), new Claim(ClaimTypes.Role, "CONSULTA") },
+        var wrongRole = new JwtSecurityToken(issuer: "TicketsCombustible.Api", audience: "LaVomVa.Client", claims: new[] { new Claim(ClaimTypes.NameIdentifier, admin.Id.ToString()), new Claim(ClaimTypes.Role, "ADMINISTRADOR"), new Claim(ClaimTypes.Role, "CONSULTA") },
             expires: DateTime.UtcNow.AddMinutes(5), signingCredentials: new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(ApiTestFactory.JwtSecret)), SecurityAlgorithms.HmacSha256));
         Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", new JwtSecurityTokenHandler().WriteToken(wrongRole));
         Assert.Equal(HttpStatusCode.Unauthorized, (await Client.GetAsync("api/catalogos/roles")).StatusCode);
-        var expired = new JwtSecurityToken(claims: new[] { new Claim(ClaimTypes.NameIdentifier, admin.Id.ToString()), new Claim(ClaimTypes.Role, "ADMINISTRADOR") },
+        var expired = new JwtSecurityToken(issuer: "TicketsCombustible.Api", audience: "LaVomVa.Client", claims: new[] { new Claim(ClaimTypes.NameIdentifier, admin.Id.ToString()), new Claim(ClaimTypes.Role, "ADMINISTRADOR") },
             expires: DateTime.UtcNow.AddMinutes(-5), signingCredentials: new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(ApiTestFactory.JwtSecret)), SecurityAlgorithms.HmacSha256));
         Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", new JwtSecurityTokenHandler().WriteToken(expired));
         Assert.Equal(HttpStatusCode.Unauthorized, (await Client.GetAsync("api/catalogos/roles")).StatusCode);

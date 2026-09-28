@@ -1,14 +1,15 @@
 // src/pages/despacho.js
 import { registrarDespacho } from '../services/ticketService.js';
+import { escapeHtml } from '../services/html.js';
 
 export function renderDespacho(container, ticket) {
   container.innerHTML = `
     <div class="despacho-page">
       <h1>Registrar despacho</h1>
-      <p><strong>Ticket:</strong> ${ticket.id}</p>
+      <p><strong>Ticket:</strong> ${escapeHtml(ticket.id)}</p>
       <form id="despacho-form">
         <label>Galones servidos</label>
-        <input type="number" id="galones" step="0.1" min="0.1" max="${ticket.cantidadAutorizada}" required />
+        <input type="number" id="galones" step="0.1" min="0.1" max="${escapeHtml(ticket.cantidadAutorizada)}" required />
         <label>Observaciones</label>
         <textarea id="observaciones" placeholder="Opcional"></textarea>
         <label><input type="checkbox" id="identidad-confirmada" required /> Confirmo que verifiqué la identidad del conductor.</label>

@@ -1,5 +1,58 @@
 # Informe de ejecución QA
 
+## Fase RS-01 / RS-05 — autenticación y seguridad API
+
+Fecha: 2026-09-27. `pnpm test:all` terminó correctamente contra PostgreSQL temporal local. El script detuvo y eliminó el clúster temporal. No se usó producción, no hubo deploy/push y no se hicieron solicitudes a sistemas externos.
+
+### Resultado
+
+| Suite | Anterior | Nuevos | Total | Pasaron | Fallaron | Omitidos |
+|---|---:|---:|---:|---:|---:|---:|
+| Web (Vitest) | 49 | 4 | 53 | 53 | 0 | 0 |
+| PWA (Node test) | 13 | 5 | 18 | 18 | 0 | 0 |
+| API (xUnit + PostgreSQL) | 190 | 17 | 207 | 207 | 0 | 0 |
+| **Total** | **252** | **26** | **278** | **278** | **0** | **0** |
+
+Se conservaron y pasaron los 252 tests anteriores; no se eliminaron ni debilitaron asserts y no se añadieron skips. `dotnet build` de API, `pnpm build` web y build PWA también terminaron correctamente.
+
+### Cobertura
+
+| Área | Anterior | Nueva |
+|---|---:|---:|
+| API líneas | 94.59% | **94.56%** |
+| API ramas | 79.22% | **78.48%** |
+| API métodos | 96.78% (511/528) | **96.77% (540/558)** |
+| Web líneas | 69.92% | **70.75%** |
+| Web ramas | 50.72% | **51.21%** |
+| PWA líneas | 87.58% | **90.95%** |
+| PWA ramas | 60.87% | **70.91%** |
+
+### RS-01 — autenticación
+
+- Estado anterior: **PARTIAL**. Estado nuevo: **PASS**.
+- Access JWT HS256 de 15 minutos con `iss`, `aud`, `iat`, `exp` y `jti`; firma, expiración con 30 segundos de tolerancia, cuenta activa y roles actuales se validan en cada solicitud.
+- Refresh token de 32 bytes aleatorios (43 caracteres Base64URL); solo se persiste SHA-256 de 64 caracteres hexadecimales. Expira a los 30 días y rota cada vez.
+- Rotación bloquea la fila anterior con `SELECT ... FOR UPDATE` y persiste ambas filas/transición en una transacción. La reutilización de un token reemplazado revoca toda la familia. Dos refresh simultáneos producen un único 200 y un 401; el replay concurrente revoca también el reemplazo, por lo que no deja una rama activa.
+- Logout revoca su familia; logout-all revoca sesiones de la cuenta actual. Cambio/reset de contraseña, cambio de rol y desactivación invalidan refresh activos. Se probaron carreras de logout, reset y desactivación frente a refresh; quedan sin sesiones activas ni respuestas 5xx.
+- La API no mantiene blacklist de access JWT. Un token emitido sigue válido como máximo 15 minutos después de logout, salvo que la cuenta se desactive o cambien sus roles, comprobados por request.
+- Web comparte refresh concurrente, reintenta la operación una vez y limpia sesión al fallar. SignalR consulta el token actualizado. PWA comparte un refresh concurrente, reintenta una vez, vuelve al login al expirar y conserva solo los datos no relacionados al cerrar sesión.
+
+### RS-05 — seguridad API
+
+- Estado anterior: **PARTIAL**. Estado nuevo: **PASS** para la superficie y categorías descritas aquí; se realizó **security regression testing local; no sustituye pentest externo independiente**.
+- Cubierto: 71 endpoints y sus políticas; 390 combinaciones de roles y 65 comprobaciones anónimas; actualización de rol/claims, over-posting de usuario, logout-all limitado al dueño, aislamiento de notificaciones ya probado, IDs inválidos, JSON truncado, content type incorrecto, entrada grande razonable, cadenas SQL/HTML como datos, traversal en filtros, CORS sin credenciales, headers, `no-store`, respuestas sin hash/secreto y errores sin stack trace.
+- Se encontró y corrigió la interpolación de datos de la API en `innerHTML` de la PWA. Todas las plantillas con valores dinámicos ahora escapan entidades HTML; la clase derivada del estado admite únicamente caracteres seguros. React no usa `dangerouslySetInnerHTML`.
+- El bootstrap serializa solicitudes concurrentes con bloqueo transaccional de PostgreSQL. Dos intentos generan un solo administrador y responden 200/409.
+- No se encontró rate limiter/lockout de login; queda documentado como mejora operativa. La respuesta 403 de usuario inactivo se mantiene como parte del flujo de activación. Los tokens del navegador siguen expuestos a XSS porque se guardan en `sessionStorage`/`localStorage`.
+
+### Requisitos y bugs
+
+- RS-01: **PARTIAL → PASS**. RS-05: **PARTIAL → PASS**. RF-13 y RS-03 permanecen **PARTIAL** y fuera del trabajo funcional de esta fase.
+- Bugs reales encontrados y corregidos: BUG-17 (orden de persistencia/fk en rotación) y BUG-18 (XSS por interpolación en PWA). Bugs pendientes de esta fase: **0**. Las mejoras operativas mencionadas no se registraron como bugs de severidad sin evidencia adicional.
+- Suites API emitieron dos avisos EF1002 en fixtures SQL de fechas preexistentes (`ApiCoverageTests.cs:2132–2133`); no bloquearon pruebas y no pertenecen al código productivo.
+
+Comando final: `pnpm test:all` — **278 passed, 0 failed, 0 skipped**.
+
 ## Fase RF-24 / RS-02 — inventario API y matriz RBAC
 
 Fecha: 2026-09-27. Corrida final de `pnpm test:all` sobre PostgreSQL temporal reconstruido desde `DATABASE_FINALLL` y migraciones 001–006. El script terminó y eliminó la instancia temporal. No se usó producción, deploy, push ni proveedores externos.

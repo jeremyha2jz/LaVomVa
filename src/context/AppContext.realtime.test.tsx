@@ -6,7 +6,7 @@ import { Dashboard } from '../pages/Dashboard'
 import type { InventoryMovement, Tank } from '../types'
 import type { CriticalInventoryChangedEvent, InventoryMovementCreatedEvent, InventoryUpdatedEvent } from '../services/inventoryRealtime'
 
-const state = vi.hoisted(() => ({ handlers: null as null | Record<string, (...args: any[]) => any>, stop: vi.fn() }))
+const state = vi.hoisted(() => ({ handlers: null as null | Record<string, (...args: any[]) => any>, getToken: null as null | (() => string | undefined), stop: vi.fn() }))
 const session = { token: 'qa-web-jwt', id: 17, name: 'QA User', role: 'CONSULTA' }
 const tank: Tank = { id: 1, code: 'T-1', name: 'Tanque 1', station: 'Estación 1', stationId: 3, fuelType: 'Diesel', capacity: 100, stock: 50, criticalLevel: 10 }
 const previousMovement: InventoryMovement = { id: 12, tankId: 1, tank: 'T-1', type: 'ENTRADA', gallons: 50, previous: 0, current: 50, reference: 'Carga', user: 'QA', date: '2026-09-27T11:00:00Z' }
@@ -20,14 +20,15 @@ vi.mock('../services/inventoryRealtime', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../services/inventoryRealtime')>()
   return {
     ...actual,
-    createInventoryRealtimeClient: vi.fn((handlers: Record<string, (...args: any[]) => any>) => {
-      state.handlers = handlers
+    createInventoryRealtimeClient: vi.fn((options: { getToken: () => string | undefined; [key: string]: any }) => {
+      state.handlers = options as Record<string, (...args: any[]) => any>
+      state.getToken = options.getToken
       return { stop: state.stop }
     }),
   }
 })
 
-beforeEach(() => { state.handlers = null; state.stop.mockReset() })
+beforeEach(() => { state.handlers = null; state.getToken = null; session.token = 'qa-web-jwt'; state.stop.mockReset() })
 afterEach(cleanup)
 
 describe('AppProvider inventory realtime integration', () => {
@@ -53,5 +54,14 @@ describe('AppProvider inventory realtime integration', () => {
     expect(state.handlers).not.toBeNull()
     view.unmount()
     expect(state.stop).toHaveBeenCalledOnce()
+  })
+
+  it('SignalR solicita siempre el access token más reciente después de la rotación', async () => {
+    const view = render(<AppProvider><Dashboard onNavigate={vi.fn()} /></AppProvider>)
+    await waitFor(() => expect(state.getToken).not.toBeNull())
+    expect(state.getToken?.()).toBe('qa-web-jwt')
+    session.token = 'qa-refreshed-jwt'
+    expect(state.getToken?.()).toBe('qa-refreshed-jwt')
+    view.unmount()
   })
 })

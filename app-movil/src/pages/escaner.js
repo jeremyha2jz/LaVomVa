@@ -1,9 +1,10 @@
 // src/pages/escaner.js
 import { Html5Qrcode } from 'html5-qrcode';
-import { validarTicket } from '../services/ticketService.js';
+import { logout, validarTicket } from '../services/ticketService.js';
 import { renderTicket } from './ticket.js';
 import { renderConsultaTickets } from './consultaTickets.js';
 import { renderLogin } from './login.js';
+import { escapeHtml } from '../services/html.js';
 
 export function renderEscaner(container) {
   container.innerHTML = `
@@ -44,7 +45,7 @@ export function renderEscaner(container) {
 
   function mostrarErrorCamara(err) {
     estadoMsg.innerHTML = `
-      No se pudo acceder a la cámara: ${err}<br>
+      No se pudo acceder a la cámara: ${escapeHtml(err)}<br>
       <button id="reintentar-camara">Reintentar</button>
     `;
     container.querySelector('#reintentar-camara').addEventListener('click', () => {
@@ -60,9 +61,9 @@ export function renderEscaner(container) {
     renderConsultaTickets(container);
   });
 
-  container.querySelector('#cerrar-sesion').addEventListener('click', () => {
+  container.querySelector('#cerrar-sesion').addEventListener('click', async () => {
     html5QrCode.stop().catch(() => {});
-    localStorage.clear();
+    await logout();
     renderLogin(container, () => {
       renderEscaner(container);
     });

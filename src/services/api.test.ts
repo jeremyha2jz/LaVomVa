@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { api, clearSession, exportReport, getReport, loadLiveData, login, reconcileTicketDelivery, register, retryTicketDelivery, savedSession, sendTicket, ticketDeliveryHistory, ticketQr } from './api'
+import { api, clearSession, exportReport, getReport, loadLiveData, login, logout, reconcileTicketDelivery, register, retryTicketDelivery, savedSession, sendTicket, ticketDeliveryHistory, ticketQr } from './api'
 
 const fetchMock = vi.fn<typeof fetch>()
 
@@ -44,8 +44,8 @@ describe('servicio API web', () => {
   })
 
   it('login persiste la sesión y envía credenciales como JSON', async () => {
-    fetchMock.mockResolvedValue(response({ token: 'signed-qa-token', id: 7, nombre: 'QA Admin', rol: 'ADMINISTRADOR' }))
-    await expect(login('qa.admin', 'not-real-password')).resolves.toEqual({ token: 'signed-qa-token', id: 7, name: 'QA Admin', role: 'ADMINISTRADOR' })
+    fetchMock.mockResolvedValue(response({ token: 'signed-qa-token', refreshToken: 'refresh-qa-token', expiresAt: '2026-09-27T18:00:00Z', id: 7, nombre: 'QA Admin', rol: 'ADMINISTRADOR' }))
+    await expect(login('qa.admin', 'not-real-password')).resolves.toEqual({ token: 'signed-qa-token', refreshToken: 'refresh-qa-token', expiresAt: '2026-09-27T18:00:00Z', id: 7, name: 'QA Admin', role: 'ADMINISTRADOR' })
     expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({ usuario: 'qa.admin', contrasena: 'not-real-password' })
     expect(savedSession()?.token).toBe('signed-qa-token')
   })
@@ -59,6 +59,40 @@ describe('servicio API web', () => {
     const [url, init] = fetchMock.mock.calls[1]
     expect(String(url)).toContain('/login/registro')
     expect(JSON.parse(String(init?.body))).toEqual({ usuario: 'new.qa', correo: 'new@example.test', nombreCompleto: 'New QA', contrasena: 'safe-test-only' })
+  })
+
+  it('renueva una sola vez ante 401, actualiza la sesión y reintenta con el token nuevo', async () => {
+    sessionStorage.setItem('lavomva-session', JSON.stringify({ token: 'old-access', refreshToken: 'old-refresh', id: 7, name: 'QA', role: 'ADMINISTRADOR' }))
+    fetchMock.mockResolvedValueOnce(response({ mensaje: 'JWT vencido' }, 401))
+      .mockResolvedValueOnce(response({ token: 'new-access', refreshToken: 'new-refresh', expiresAt: '2026-09-27T18:00:00Z' }))
+      .mockResolvedValueOnce(response([{ id: 1, nombre: 'ADMINISTRADOR' }]))
+    await expect(api.roles()).resolves.toHaveLength(1)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/login/refresh')
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({ refreshToken: 'old-refresh' })
+    expect(fetchMock.mock.calls[2][1]?.headers).toMatchObject({ Authorization: 'Bearer new-access' })
+    expect(savedSession()).toMatchObject({ token: 'new-access', refreshToken: 'new-refresh' })
+  })
+
+  it('si refresh falla limpia sesión, notifica expiración y no repite la petición', async () => {
+    sessionStorage.setItem('lavomva-session', JSON.stringify({ token: 'old-access', refreshToken: 'revoked', id: 7, name: 'QA', role: 'ADMINISTRADOR' }))
+    const expired = vi.fn()
+    window.addEventListener('lavomva-session-expired', expired)
+    fetchMock.mockResolvedValueOnce(response({ mensaje: 'JWT vencido' }, 401)).mockResolvedValueOnce(response({ mensaje: 'Sesión no válida' }, 401))
+    await expect(api.roles()).rejects.toThrow('JWT vencido')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(savedSession()).toBeNull()
+    expect(expired).toHaveBeenCalledOnce()
+    window.removeEventListener('lavomva-session-expired', expired)
+  })
+
+  it('logout revoca refresh en la API y limpia la sesión local', async () => {
+    sessionStorage.setItem('lavomva-session', JSON.stringify({ token: 'access', refreshToken: 'refresh', id: 7, name: 'QA', role: 'ADMINISTRADOR' }))
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }))
+    await logout()
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/login/logout')
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({ refreshToken: 'refresh' })
+    expect(savedSession()).toBeNull()
   })
 
   it.each([502, 503, 504])('mapea indisponibilidad HTTP %i a un mensaje estable', async (status) => {

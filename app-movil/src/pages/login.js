@@ -30,6 +30,8 @@ export function renderLogin(container, onLoginExitoso) {
       const resultado = await login(usuario, contrasena);
       // Guardamos el token y datos del usuario para usarlos en el resto de la app
       localStorage.setItem('token', resultado.token);
+      if (resultado.refreshToken) localStorage.setItem('refreshToken', resultado.refreshToken);
+      if (resultado.expiresAt) localStorage.setItem('expiresAt', resultado.expiresAt);
       localStorage.setItem('nombre', resultado.nombre);
       localStorage.setItem('rol', resultado.rol);
 

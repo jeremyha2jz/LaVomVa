@@ -16,6 +16,7 @@ var connectionString = builder.Configuration.GetConnectionString("TicketsCombust
 builder.Services.AddDbContext<TicketsCombustibleDbContext>(options => options.UseNpgsql(connectionString));
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IAuditoriaService, AuditoriaService>();
+builder.Services.AddScoped<AuthSessionService>();
 builder.Services.AddScoped<CierreDiarioService>();
 builder.Services.AddScoped<ReportesService>();
 builder.Services.AddScoped<SolicitudProgramacionService>();
@@ -35,15 +36,20 @@ builder.Services.AddScoped<TicketDeliveryService>();
 builder.Services.AddMemoryCache();
 var jwtKey = builder.Configuration["Jwt:Key"] ?? throw new InvalidOperationException("Falta Jwt:Key.");
 if (Encoding.UTF8.GetByteCount(jwtKey) < 32 || jwtKey.StartsWith("REEMPLAZA_")) throw new InvalidOperationException("Configura Jwt:Key con al menos 32 bytes privados.");
+var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "TicketsCombustible.Api";
+var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "LaVomVa.Client";
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(options =>
 {
     options.TokenValidationParameters = new TokenValidationParameters
     {
         ValidateIssuerSigningKey = true,
         IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
-        ValidateIssuer = false,
-        ValidateAudience = false,
-        ValidateLifetime = true
+        ValidateIssuer = true,
+        ValidIssuer = jwtIssuer,
+        ValidateAudience = true,
+        ValidAudience = jwtAudience,
+        ValidateLifetime = true,
+        ClockSkew = TimeSpan.FromSeconds(30)
     };
     options.Events = new JwtBearerEvents
     {
@@ -80,6 +86,13 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
+app.Use(async (context, next) =>
+{
+    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    context.Response.Headers["X-Frame-Options"] = "DENY";
+    context.Response.Headers["Referrer-Policy"] = "no-referrer";
+    await next();
+});
 if (app.Environment.IsDevelopment()) { app.UseSwagger(); app.UseSwaggerUI(); }
 app.UseCors("pwa");
 app.UseAuthentication();

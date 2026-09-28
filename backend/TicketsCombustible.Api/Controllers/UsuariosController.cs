@@ -12,7 +12,7 @@ namespace TicketsCombustible.Api.Controllers;
 [ApiController]
 [Authorize(Roles = "ADMINISTRADOR")]
 [Route("api/gestion/usuarios")]
-public class UsuariosController(TicketsCombustibleDbContext db, IAuditoriaService auditoria) : ControllerBase
+public class UsuariosController(TicketsCombustibleDbContext db, IAuditoriaService auditoria, AuthSessionService sessions) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> Listar()
@@ -75,7 +75,10 @@ public class UsuariosController(TicketsCombustibleDbContext db, IAuditoriaServic
         var nuevo = Snapshot(usuario, request.RolId, nuevoRol);
         await auditoria.RegistrarAsync("USER_UPDATED", "USUARIO", usuario.Id.ToString(), "EXITO", anterior, nuevo);
         if (rolAnteriorId != request.RolId)
+        {
             await auditoria.RegistrarAsync("USER_ROLE_CHANGED", "USUARIO", usuario.Id.ToString(), "EXITO", new { rolId = rolAnteriorId, rol = rolAnterior }, new { rolId = request.RolId, rol = nuevoRol });
+            await sessions.RevokeAllAsync(id, "USER_ROLE_SESSIONS_REVOKED");
+        }
         await transaction.CommitAsync();
         return Ok(new { usuario.Id, usuario.NombreUsuario, usuario.Correo, usuario.NombreCompleto, usuario.Telefono, request.RolId });
     }
@@ -90,6 +93,7 @@ public class UsuariosController(TicketsCombustibleDbContext db, IAuditoriaServic
         usuario.PasswordHash = CrearHash(request.Contrasena);
         await db.SaveChangesAsync();
         await auditoria.RegistrarAsync("USER_PASSWORD_RESET", "USUARIO", usuario.Id.ToString(), "EXITO", detalle: "Contraseña restablecida; el valor no se registra.");
+        await sessions.RevokeAllAsync(id, "USER_PASSWORD_SESSIONS_REVOKED");
         await transaction.CommitAsync();
         return NoContent();
     }
@@ -105,6 +109,7 @@ public class UsuariosController(TicketsCombustibleDbContext db, IAuditoriaServic
         usuario.Activo = false;
         await db.SaveChangesAsync();
         await auditoria.RegistrarAsync("USER_DEACTIVATED", "USUARIO", usuario.Id.ToString(), "EXITO", anterior, Snapshot(usuario));
+        await sessions.RevokeAllAsync(id, "USER_DISABLED_SESSIONS_REVOKED");
         await transaction.CommitAsync();
         return NoContent();
     }

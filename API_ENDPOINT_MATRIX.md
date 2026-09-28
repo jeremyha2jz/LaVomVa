@@ -4,9 +4,9 @@ Inventario generado contra los 15 controladores y contrastado en pruebas con `IA
 
 ## Resumen
 
-- Rutas MVC de negocio: **67**.
-- Públicas por diseño: **4** (`POST /api/login`, `POST /api/login/registro`, `POST /api/login/inicializar-admin`, `GET /api/tickets/public/qr`).
-- Protegidas: **63**; de ellas, **46** tienen roles restringidos y **17** admiten a cualquiera de los seis roles autenticados.
+- Rutas MVC de negocio: **71**.
+- Públicas por diseño: **6** (`POST /api/login`, `POST /api/login/registro`, `POST /api/login/inicializar-admin`, `POST /api/login/refresh`, `POST /api/login/logout`, `GET /api/tickets/public/qr`). Refresh y logout solo aceptan credenciales de sesión en el body y responden sin caché.
+- Protegidas: **65**; de ellas, **46** tienen roles restringidos y **19** admiten a cualquiera de los seis roles autenticados.
 - SeñalR: `/hubs/inventory` y su transporte `POST /hubs/inventory/negotiate` son rutas técnicas protegidas por `[Authorize]`; no son acciones REST MVC.
 - Swagger/UI y `/swagger/v1/swagger.json` solo se registran en `Development`; `Testing` no registra health checks ni otras rutas técnicas HTTP.
 - Roles sembrados por `DATABASE_FINALLL`: `ADMINISTRADOR`, `SUPERVISOR`, `DESPACHADOR`, `SOLICITANTE`, `AUDITOR`, `CONSULTA`.
@@ -22,6 +22,10 @@ Inventario generado contra los 15 controladores y contrastado en pruebas con `IA
 | POST | `/api/login` | Auth / Login | Pública | `LoginRequest` | token de sesión; 200, 400, 401, 403 | RS-02 |
 | POST | `/api/login/registro` | Auth / Registro | Pública | `RegistroRequest` | mensaje; 200, 400, 409, 500 | RF-01 |
 | POST | `/api/login/inicializar-admin` | Auth / InicializarAdmin | Pública + secreto bootstrap | `InicializarAdminRequest` | mensaje; 200, 400, 401, 404, 409, 500 | RF-01, RS-02 |
+| POST | `/api/login/refresh` | Auth / Refresh | Pública + refresh token en body | `TokenRequest` | access token breve + refresh rotado; 200, 401; `Cache-Control: no-store` | RS-01 |
+| POST | `/api/login/logout` | Auth / Logout | Pública + refresh token en body | `TokenRequest` | 204 idempotente; revoca la familia de sesión | RS-01 |
+| POST | `/api/login/logout-all` | Auth / LogoutAll | * | ninguno | 204; revoca todas las sesiones del usuario | RS-01 |
+| POST | `/api/login/cambiar-contrasena` | Auth / ChangePassword | * | `ChangePasswordRequest` | 204, 400; cambia clave y revoca todas las sesiones | RS-01 |
 | GET | `/api/catalogos/departamentos` | Catalogos / Departamentos | * | ninguno | departamentos activos; 200 | RF-02, RF-04 |
 | GET | `/api/catalogos/empleados` | Catalogos / Empleados | * | ninguno | empleados activos; 200 | RF-02 |
 | GET | `/api/catalogos/vehiculos` | Catalogos / Vehiculos | * | ninguno | vehículos activos; 200 | RF-03 |
@@ -88,12 +92,12 @@ Inventario generado contra los 15 controladores y contrastado en pruebas con `IA
 
 ## Matriz compacta por política
 
-Cada una de las 63 rutas protegidas se prueba sin credencial y contra los seis roles (378 combinaciones de rol/ruta, más 63 comprobaciones anónimas). La prueba parametrizada comprueba que la lista de rutas real coincide exactamente con este inventario, compara roles esperados con `IAuthorizeData`/`IAllowAnonymous`, y llama a cada ruta protegida con token vigente para comprobar 401/403 y el paso por autorización. Los 17 endpoints `*` están marcados como herencia de política fallback autenticada; su autorización se establece en `Program.cs`.
+Cada una de las 65 rutas protegidas se prueba sin credencial y contra los seis roles (390 combinaciones de rol/ruta, más 65 comprobaciones anónimas). La prueba parametrizada comprueba que la lista de rutas real coincide exactamente con este inventario, compara roles esperados con `IAuthorizeData`/`IAllowAnonymous`, y llama a cada ruta protegida con token vigente para comprobar 401/403 y el paso por autorización. Los 19 endpoints `*` están marcados como herencia de política fallback autenticada; su autorización se establece en `Program.cs`.
 
 | Ámbito | Rutas | Roles que pasan | Otros roles |
 |---|---:|---|---|
-| Público | 4 | Sin JWT, según propósito de la ruta | No aplica |
-| Solo autenticación (`*`) | 17 | Los seis roles | No aplica |
+| Público | 6 | Sin JWT; refresh/logout requieren refresh token en body | No aplica |
+| Solo autenticación (`*`) | 19 | Los seis roles | No aplica |
 | Auditoría | 1 | ADMINISTRADOR, AUDITOR | 403 |
 | Creación de cierre | 1 | ADMINISTRADOR, SUPERVISOR, DESPACHADOR | 403 |
 | Lectura/PDF de cierre | 4 | ADMINISTRADOR, SUPERVISOR, DESPACHADOR, AUDITOR | 403 |
@@ -109,7 +113,7 @@ Cada una de las 63 rutas protegidas se prueba sin credencial y contra los seis r
 | Operaciones de ticket restringidas | 3 | ADMINISTRADOR, SUPERVISOR | 403 |
 | Gestión de usuarios | 6 | ADMINISTRADOR | 403 |
 
-Las operaciones históricas de auditoría y cierre solo exponen GET/POST de creación; no hay acciones PUT/PATCH/DELETE para esos recursos. Las rutas públicas de autenticación no entregan información del usuario ante credenciales inválidas. Bootstrap exige secreto de configuración, compara en tiempo constante, serializa su creación y rechaza nuevos administradores cuando ya existe uno. El QR público valida el token firmado, limita su tamaño y evita caché/referer.
+Las operaciones históricas de auditoría y cierre solo exponen GET/POST de creación; no hay acciones PUT/PATCH/DELETE para esos recursos. Las credenciales inválidas no distinguen entre usuario inexistente y contraseña incorrecta; una cuenta inactiva conserva la respuesta 403 del flujo de activación. Bootstrap exige secreto de configuración, compara en tiempo constante, serializa su creación y rechaza nuevos administradores cuando ya existe uno. El QR público valida el token firmado, limita su tamaño y evita caché/referer.
 
 ## Superficie técnica
 
@@ -117,7 +121,7 @@ Las operaciones históricas de auditoría y cierre solo exponen GET/POST de crea
 |---|---|---|
 | `/hubs/inventory` | `[Authorize]`; JWT en cabecera o query `access_token` solo para este prefijo | Negotiate anónimo -> 401; token inválido -> 401; token vigente -> conexión autorizada. Cubierto también por `ApiCoverageTests.Hub_de_inventario_exige_jwt_valido_en_negotiate` y conexión SignalR real. |
 | `/swagger`, `/swagger/index.html`, `/swagger/v1/swagger.json` | Solo se mapean en Development | Generación se valida con OpenAPI en pruebas de matriz; Testing no expone Swagger HTTP. |
-| `/hubs/inventory/negotiate` | Negotiate de SignalR; no acción MVC ni API REST | Se incluye en la verificación del Hub, no en las 67 rutas MVC. |
+| `/hubs/inventory/negotiate` | Negotiate de SignalR; no acción MVC ni API REST | Se incluye en la verificación del Hub, no en las 71 rutas MVC. |
 
 ## Pruebas contractuales relacionadas
 

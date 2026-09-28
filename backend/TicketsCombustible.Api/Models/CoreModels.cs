@@ -7,6 +7,18 @@ namespace TicketsCombustible.Api.Models;
 public class Rol { [Key, Column("id_role")] public long Id { get; set; } [Column("nombre")] public string Nombre { get; set; } = null!; [Column("descripcion")] public string? Descripcion { get; set; } [Column("activo")] public bool Activo { get; set; } }
 public class Usuario { [Key, Column("id_usuario")] public long Id { get; set; } [Column("nombre_usuario")] public string NombreUsuario { get; set; } = null!; [Column("correo")] public string Correo { get; set; } = null!; [Column("password_hash")] public string PasswordHash { get; set; } = null!; [Column("nombre_completo")] public string NombreCompleto { get; set; } = null!; [Column("telefono")] public string? Telefono { get; set; } [Column("activo")] public bool Activo { get; set; } = true; }
 public class UsuarioRol { [Column("id_usuario")] public long UsuarioId { get; set; } [Column("id_role")] public long RolId { get; set; } }
+public sealed class SesionUsuario
+{
+    [Key, Column("id_sesion")] public Guid Id { get; set; }
+    [Column("id_familia")] public Guid FamiliaId { get; set; }
+    [Column("id_usuario")] public long UsuarioId { get; set; }
+    [Column("hash_refresh_token")] public string HashRefreshToken { get; set; } = null!;
+    [Column("creado_en")] public DateTimeOffset CreadoEn { get; set; }
+    [Column("expira_en")] public DateTimeOffset ExpiraEn { get; set; }
+    [Column("revocado_en")] public DateTimeOffset? RevocadoEn { get; set; }
+    [Column("reemplazado_por_id")] public Guid? ReemplazadoPorId { get; set; }
+    [Column("ultimo_uso_en")] public DateTimeOffset? UltimoUsoEn { get; set; }
+}
 public sealed class Notificacion
 {
     [Key, Column("id_notificacion")] public long Id { get; set; }

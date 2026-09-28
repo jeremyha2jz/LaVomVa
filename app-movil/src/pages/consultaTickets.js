@@ -1,6 +1,7 @@
 // src/pages/consultaTickets.js
 import { consultarTickets } from '../services/ticketService.js';
 import { renderEscaner } from './escaner.js';
+import { escapeHtml, safeClassName } from '../services/html.js';
 
 export function renderConsultaTickets(container) {
   container.innerHTML = `
@@ -24,9 +25,9 @@ export function renderConsultaTickets(container) {
     }
 
     lista.innerHTML = tickets.map(t => `
-      <li class="ticket-item estado-${t.estado.toLowerCase()}">
-        <strong>${t.id}</strong> — ${t.estado}<br>
-        Vehículo: ${t.vehiculo} | Autorizado: ${t.cantidadAutorizada} gal | Vence: ${t.fechaVencimiento}
+      <li class="ticket-item estado-${safeClassName(t.estado)}">
+        <strong>${escapeHtml(t.id)}</strong> — ${escapeHtml(t.estado)}<br>
+        Vehículo: ${escapeHtml(t.vehiculo)} | Autorizado: ${escapeHtml(t.cantidadAutorizada)} gal | Vence: ${escapeHtml(t.fechaVencimiento)}
       </li>
     `).join('');
   }).catch((err) => {

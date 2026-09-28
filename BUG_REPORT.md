@@ -243,3 +243,29 @@ Durante RF-23 se revisaron los fallos definitivos de entrega, las transacciones 
 - **Corrección:** introducir DTOs de alta/edición explícitos para departamentos, empleados, vehículos, estaciones, tanques y proveedores; proyectar respuestas sin estado interno del tanque. El nivel inicial se fija en cero y la base genera los IDs.
 - **Regression test:** `ApiEndpointMatrixTests.Catalogos_ignoran_ids_y_estado_interno_en_los_contratos_de_creacion` intenta sobreescribir IDs y atributos internos y verifica respuesta y persistencia.
 - **Estado:** Corregido y verificado por `pnpm test:all` en la fase RF-24/RS-02 (252/252, 0 omitidos).
+
+## BUG-17
+
+- **Severidad:** HIGH
+- **Requisito:** RS-01
+- **Componente:** API, `POST /api/login/refresh`
+- **Reproducción:** iniciar sesión y rotar una vez el refresh token contra PostgreSQL temporal.
+- **Resultado esperado:** persistir el token sustituto y enlazarlo con el token rotado dentro de una sola transacción.
+- **Resultado obtenido:** la primera implementación intentó actualizar la referencia `reemplazado_por_id` antes de insertar la fila sustituta; la clave foránea rechazaba el guardado y el endpoint respondía 500.
+- **Causa:** EF Core no tenía una relación de navegación para ordenar el insert/update de las dos filas.
+- **Corrección:** insertar primero la fila sustituta y luego revocar/enlazar la anterior; ambas escrituras permanecen dentro de la misma transacción.
+- **Regression test:** `AuthSecurityTests.Refresh_rota_token_hash_y_reutilizacion_revoca_toda_la_familia`, `Dos_refresh_concurrentes_del_mismo_token_solo_rotan_una_vez_y_no_generan_500`.
+- **Estado:** Corregido y verificado en PostgreSQL temporal mediante rotación secuencial y concurrente.
+
+## BUG-18
+
+- **Severidad:** HIGH
+- **Requisito:** RS-05
+- **Componente:** PWA, renderizado de tickets y mensajes
+- **Reproducción:** devolver desde la API campos como `<script>alert(1)</script>` en nombre del empleado, vehículo, estado, identificador o mensaje de error que la PWA insertaba directamente en `innerHTML`.
+- **Resultado esperado:** tratar los valores de la API como texto inerte.
+- **Resultado obtenido:** los valores interpolados podían interpretarse como HTML; React no participa en estas vistas móviles vanilla.
+- **Causa:** interpolación directa de datos no confiables en las plantillas HTML de ticket, listado, despacho y error de cámara.
+- **Corrección:** agregar escape de entidades HTML para todos los valores dinámicos y limitar el nombre de clase derivado del estado a caracteres seguros.
+- **Regression test:** `ticketService.test.js` comprueba escape de `<script>`, comillas y nombre de clase manipulado; revisión `rg` de todas las interpolaciones de `innerHTML` confirma escape o valor estático.
+- **Estado:** Corregido y verificado; E2E de navegador móvil continúa fuera del alcance.

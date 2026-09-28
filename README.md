@@ -12,7 +12,7 @@ Se basa en el documento *SRS Plataforma Web y Aplicación Móvil para Gestión d
 - Entity Framework Core 8 y Npgsql
 - ClosedXML para exportar archivos XLSX
 - PostgreSQL 14 o superior (probado con PostgreSQL 18) y pgAdmin 4
-- JWT Bearer para la sesión y PBKDF2-SHA256 (100 000 iteraciones) para las contraseñas
+- JWT Bearer HS256 de 15 minutos y PBKDF2-SHA256 (100 000 iteraciones) para las contraseñas; refresh tokens rotatorios almacenados como hash SHA-256 en PostgreSQL
 - SignalR autenticado para propagar cambios confirmados de inventario a las sesiones web conectadas
 - QRCoder para generar la imagen PNG del QR, y SHA-256 con secreto del servidor para su verificación
 - Swagger / Swashbuckle para explorar y probar la API
@@ -48,7 +48,8 @@ El comando crea una instancia PostgreSQL temporal, carga `DATABASE_FINALLL`, eje
 
 **API** (`backend/TicketsCombustible.Api/`)
 
-- Inicio de sesión (`POST /api/login`) que devuelve un JWT de 8 horas, el id, el nombre y el rol del usuario.
+- Inicio de sesión (`POST /api/login`) que devuelve un access JWT de 15 minutos, refresh token opaco, vencimiento, id, nombre y rol. El access JWT valida firma HS256, issuer, audience, expiración, usuario activo y roles actuales.
+- Sesiones: `POST /api/login/refresh` rota el refresh token; `POST /api/login/logout` revoca la familia actual; `POST /api/login/logout-all` revoca todas las sesiones; `POST /api/login/cambiar-contrasena` cambia la clave y revoca todas las sesiones. Un reset administrativo, cambio de rol o desactivación también revoca refresh tokens. Si un refresh ya rotado se reutiliza, se revoca toda la familia. Los access JWT existentes pueden seguir utilizándose hasta su expiración (máximo 15 minutos) salvo que la cuenta se desactive o cambien sus roles, que se validan en cada solicitud.
 - Creación y listado de usuarios, con un rol por usuario; seis roles precargados: Administrador, Supervisor, Despachador, Solicitante, Auditor y Consulta.
 - Departamentos, empleados, vehículos, estaciones y tanques: crear, editar y desactivar (baja lógica) en `api/gestion`, y consulta de activos en `api/catalogos`.
 - Solicitudes: crear (valida que empleado, vehículo, departamento y combustible existan y estén activos), aprobar y rechazar. Las fechas se aceptan en UTC (`...Z`), con desfase (`-04:00`) o sin zona.
@@ -79,6 +80,8 @@ Los pasos de la web requieren la API y una cuenta autenticada. Lo que la web aú
 
 **RF-10 — Estado del ticket.** "Tickets digitales" en la web o "Ver tickets" en la app móvil.
 
+**RS-01 — Sesión.** Web y PWA guardan access y refresh tokens en `sessionStorage` y `localStorage`, respectivamente; su JavaScript puede leerlos, por lo que una vulnerabilidad XSS podría exponerlos. Ambos clientes, ante un 401, intentan refresh una sola vez, actualizan la sesión y repiten la operación una vez; si refresh falla, limpian la sesión local. El logout envía el refresh token al API para revocar la familia. Los tokens se envían en JSON y en `Authorization: Bearer`, nunca en cookies automáticas; por eso el flujo no depende de cookies y reduce la exposición a CSRF clásico. La API no implementa blacklist para access tokens: logout bloquea renovaciones inmediatamente y el access JWT expira en 15 minutos.
+
 **RF-09 — Entrega por correo/SMS.** En "Tickets digitales", un ADMINISTRADOR o SUPERVISOR abre el ticket, elige Correo, SMS o ambos y pulsa "Enviar ticket". La aplicación registra cada intento; si un canal falla de forma confirmada, se puede reintentar solo ese canal. Si el resultado del proveedor es incierto, el envío queda PENDIENTE: consulta el gateway y confirma en el historial si llegó o falló. Esa conciliación exige confirmación, espera al menos cinco minutos y queda auditada. API: `POST /api/tickets/{id}/enviar`, `POST /api/tickets/{id}/reenviar`, `POST /api/tickets/{id}/envios/{envioId}/reconciliar`, `GET /api/tickets/{id}/envios`. Solo ADMINISTRADOR/SUPERVISOR pueden enviar, consultar historial o reconciliar.
 
 Para habilitar proveedores configura SMTP mediante `Smtp__Host`, `Smtp__Port`, `Smtp__Username`, `Smtp__Password`, `Smtp__From`, `Smtp__EnableSsl` y opcionalmente `Smtp__TimeoutMilliseconds`. El gateway SMS configurable requiere `Sms__Endpoint` (solo HTTPS), `Sms__ApiKey`, `Sms__Provider` y opcionalmente `Sms__TimeoutMilliseconds`; recibe JSON `{to,message,idempotencyKey}` y el header `Idempotency-Key`. `TicketDelivery__PublicBaseUrl` debe ser la URL pública HTTPS para el QR SMS. Guarda credenciales como secretos del entorno; no las agregues al repositorio. Las pruebas reemplazan ambos proveedores por fakes y no envían mensajes reales.
@@ -101,7 +104,7 @@ Para habilitar proveedores configura SMTP mediante `Smtp__Host`, `Smtp__Port`, `
 
 El detalle requisito por requisito está en el documento de brechas frente al SRS. En resumen:
 
-- **Autenticación y roles.** La API exige JWT en las rutas privadas y restringe las escrituras por rol. Todavía faltan políticas de alcance por usuario.
+- **Autenticación y roles.** La API exige JWT en las rutas privadas, valida cuenta y roles actuales y soporta refresh rotatorio con revocación. Todavía faltan políticas de alcance por usuario; tokens en almacenamiento web/PWA conservan exposición a XSS y no hay límite de intentos de login por cuenta/IP.
 - **Prueba de validación QR en memoria.** `POST /api/despachos` exige que la misma sesión haya validado recientemente el QR. Una instalación con varias instancias necesita un almacén compartido para esta prueba.
 - **Escaneo QR desde cámara real.** La integración con cámara y permisos del navegador no tiene prueba E2E automatizada; se valida el contrato móvil mediante pruebas unitarias y el flujo servidor mediante integración.
 - **La web y la app móvil usan el mismo puerto (5173).** Para usarlas a la vez, arranca la app móvil con `npm run dev -- --port 5174`.
@@ -155,8 +158,11 @@ En `appsettings.Development.json` reemplaza:
 - `TU_CLAVE` por la contraseña local del usuario `postgres`.
 - `Qr:SigningSecret` por un secreto aleatorio de **al menos 32 caracteres** (sin él la API no emite ni valida tickets). Si lo cambias después, los tickets ya emitidos dejan de validar.
 - `Jwt:Key` por otro secreto aleatorio de al menos 32 caracteres (sin él la API no arranca).
+- Opcionalmente `Jwt:Issuer` y `Jwt:Audience` por los identificadores esperados para el emisor y el cliente.
 
 El archivo está excluido del control de versiones. También se pueden usar variables de entorno: `ConnectionStrings__TicketsCombustible`, `Jwt__Key` y `Qr__SigningSecret`.
+
+Aplica también la migración `backend/TicketsCombustible.Api/Migrations/007_auth_sessions.sql` después de cargar `DATABASE_FINALLL`; crea la tabla de sesiones y sus índices únicos/de familia.
 
 ### 4. Arrancar la API
 
