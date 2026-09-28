@@ -29,10 +29,10 @@ public class InventarioController(TicketsCombustibleDbContext db, IAuditoriaServ
     public async Task<IActionResult> Ajustar(AjusteInventarioRequest request)
     {
         if (!long.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var actorId)) return Unauthorized();
-        if (request.CantidadGalones <= 0) return BadRequest("La cantidad debe ser mayor que cero.");
-        if (request.Tipo is not ("AJUSTE_POSITIVO" or "AJUSTE_NEGATIVO" or "MERMA")) return BadRequest("Tipo permitido: AJUSTE_POSITIVO, AJUSTE_NEGATIVO o MERMA.");
-        if (!await db.Tanques.AnyAsync(x => x.Id == request.TanqueId && x.Activo)) return NotFound("Tanque no encontrado o inactivo.");
-        if (!await db.Usuarios.AnyAsync(x => x.Id == actorId && x.Activo)) return BadRequest("Usuario inválido.");
+        if (request.CantidadGalones <= 0) return BadRequest(new ApiErrorResponse("La cantidad debe ser mayor que cero."));
+        if (request.Tipo is not ("AJUSTE_POSITIVO" or "AJUSTE_NEGATIVO" or "MERMA")) return BadRequest(new ApiErrorResponse("Tipo permitido: AJUSTE_POSITIVO, AJUSTE_NEGATIVO o MERMA."));
+        if (!await db.Tanques.AnyAsync(x => x.Id == request.TanqueId && x.Activo)) return NotFound(new ApiErrorResponse("Tanque no encontrado o inactivo."));
+        if (!await db.Usuarios.AnyAsync(x => x.Id == actorId && x.Activo)) return BadRequest(new ApiErrorResponse("Usuario inválido."));
         await using var transaction = await db.Database.BeginTransactionAsync();
         var lockedTank = await db.Tanques.FromSqlInterpolated($"SELECT * FROM tanques WHERE id_tanque={request.TanqueId} FOR UPDATE").AsNoTracking().SingleAsync();
         var stockBefore = lockedTank.ExistenciaActualGalones;

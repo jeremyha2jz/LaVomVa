@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using System.Security.Claims;
@@ -97,7 +98,18 @@ if (trustedProxies.Length > 0)
         }
     });
 }
-builder.Services.AddControllers().AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+builder.Services.AddControllers()
+    .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()))
+    .ConfigureApiBehaviorOptions(options =>
+    options.InvalidModelStateResponseFactory = context =>
+    {
+        var errores = context.ModelState
+            .Where(x => x.Value?.Errors.Count > 0)
+            .ToDictionary(
+                x => x.Key,
+                x => x.Value!.Errors.Select(error => string.IsNullOrWhiteSpace(error.ErrorMessage) ? "El valor enviado no es válido." : error.ErrorMessage).ToArray());
+        return new BadRequestObjectResult(new ApiErrorResponse("La solicitud contiene datos inválidos.", errores));
+    });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpsRedirection(options =>
@@ -107,6 +119,11 @@ builder.Services.AddHttpsRedirection(options =>
 });
 
 var app = builder.Build();
+app.UseExceptionHandler(errorApp => errorApp.Run(async context =>
+{
+    context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+    await context.Response.WriteAsJsonAsync(new ApiErrorResponse("Ocurrió un error interno al procesar la solicitud."));
+}));
 app.Use(async (context, next) =>
 {
     context.Response.Headers["X-Content-Type-Options"] = "nosniff";
@@ -124,6 +141,18 @@ if (!app.Environment.IsDevelopment() && !app.Environment.IsEnvironment("Testing"
 app.UseCors("pwa");
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseStatusCodePages(async statusContext =>
+{
+    var response = statusContext.HttpContext.Response;
+    var mensaje = response.StatusCode switch
+    {
+        StatusCodes.Status404NotFound => "No se encontró el recurso solicitado.",
+        StatusCodes.Status401Unauthorized => "No está autorizado para realizar esta acción.",
+        StatusCodes.Status403Forbidden => "No tiene permisos para realizar esta acción.",
+        _ => "La solicitud no pudo procesarse."
+    };
+    await response.WriteAsJsonAsync(new ApiErrorResponse(mensaje));
+});
 app.MapControllers();
 app.MapHub<InventoryHub>("/hubs/inventory");
 app.Run();

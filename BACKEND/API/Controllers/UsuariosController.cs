@@ -27,11 +27,11 @@ public class UsuariosController(TicketsCombustibleDbContext db, IAuditoriaServic
     [HttpPost]
     public async Task<IActionResult> Crear(CrearUsuarioRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request.Password) || request.Password.Length < 12) return BadRequest("La contraseña debe tener al menos 12 caracteres.");
+        if (string.IsNullOrWhiteSpace(request.Password) || request.Password.Length < 12) return BadRequest(new ApiErrorResponse("La contraseña debe tener al menos 12 caracteres."));
         if (request.NombreUsuario.Trim().Length < 3 || request.NombreCompleto.Trim().Length < 3 ||
-            !System.Net.Mail.MailAddress.TryCreate(request.Correo, out _)) return BadRequest("Usuario, nombre o correo inválidos.");
-        if (await db.Usuarios.AnyAsync(x => x.NombreUsuario == request.NombreUsuario || x.Correo == request.Correo)) return Conflict("El usuario o correo ya existe.");
-        if (!await db.Roles.AnyAsync(x => x.Id == request.RolId && x.Activo)) return BadRequest("El rol indicado no existe o está inactivo.");
+            !System.Net.Mail.MailAddress.TryCreate(request.Correo, out _)) return BadRequest(new ApiErrorResponse("Usuario, nombre o correo inválidos."));
+        if (await db.Usuarios.AnyAsync(x => x.NombreUsuario == request.NombreUsuario || x.Correo == request.Correo)) return Conflict(new ApiErrorResponse("El usuario o correo ya existe."));
+        if (!await db.Roles.AnyAsync(x => x.Id == request.RolId && x.Activo)) return BadRequest(new ApiErrorResponse("El rol indicado no existe o está inactivo."));
 
         var usuario = new Usuario { NombreUsuario = request.NombreUsuario, Correo = request.Correo, NombreCompleto = request.NombreCompleto, Telefono = request.Telefono, PasswordHash = CrearHash(request.Password) };
         await using var transaction = await db.Database.BeginTransactionAsync();
@@ -50,9 +50,9 @@ public class UsuariosController(TicketsCombustibleDbContext db, IAuditoriaServic
     {
         var usuario = await db.Usuarios.FindAsync(id);
         if (usuario is null) return NotFound();
-        if (string.IsNullOrWhiteSpace(request.NombreCompleto) || !System.Net.Mail.MailAddress.TryCreate(request.Correo, out _)) return BadRequest("Nombre o correo inválido.");
-        if (await db.Usuarios.AnyAsync(x => x.Id != id && x.Correo == request.Correo)) return Conflict("El correo ya existe.");
-        if (!await db.Roles.AnyAsync(x => x.Id == request.RolId && x.Activo)) return BadRequest("Rol inválido.");
+        if (string.IsNullOrWhiteSpace(request.NombreCompleto) || !System.Net.Mail.MailAddress.TryCreate(request.Correo, out _)) return BadRequest(new ApiErrorResponse("Nombre o correo inválido."));
+        if (await db.Usuarios.AnyAsync(x => x.Id != id && x.Correo == request.Correo)) return Conflict(new ApiErrorResponse("El correo ya existe."));
+        if (!await db.Roles.AnyAsync(x => x.Id == request.RolId && x.Activo)) return BadRequest(new ApiErrorResponse("Rol inválido."));
         var rolesActuales = await db.UsuarioRoles.Where(x => x.UsuarioId == id).ToListAsync();
         var rolAnteriorId = rolesActuales.SingleOrDefault()?.RolId;
         var rolAnterior = rolAnteriorId is null ? null : await db.Roles.Where(x => x.Id == rolAnteriorId).Select(x => x.Nombre).SingleOrDefaultAsync();
@@ -62,7 +62,7 @@ public class UsuariosController(TicketsCombustibleDbContext db, IAuditoriaServic
             var adminId = await db.Roles.Where(x => x.Nombre == "ADMINISTRADOR").Select(x => x.Id).SingleOrDefaultAsync();
             var esAdmin = rolesActuales.Any(x => x.RolId == adminId);
             var cuentaAdmins = await (from ur in db.UsuarioRoles join r in db.Roles on ur.RolId equals r.Id where r.Nombre == "ADMINISTRADOR" select ur.UsuarioId).Distinct().CountAsync();
-            if (esAdmin && request.RolId != adminId && cuentaAdmins <= 1) return Conflict("No se puede quitar el último administrador.");
+            if (esAdmin && request.RolId != adminId && cuentaAdmins <= 1) return Conflict(new ApiErrorResponse("No se puede quitar el último administrador."));
             db.UsuarioRoles.RemoveRange(rolesActuales.Where(x => x.RolId != request.RolId));
             if (!rolesActuales.Any(x => x.RolId == request.RolId)) db.UsuarioRoles.Add(new UsuarioRol { UsuarioId = id, RolId = request.RolId });
         }
@@ -86,7 +86,7 @@ public class UsuariosController(TicketsCombustibleDbContext db, IAuditoriaServic
     [HttpPost("{id:long}/restablecer-contrasena")]
     public async Task<IActionResult> RestablecerContrasena(long id, RestablecerContrasenaRequest request)
     {
-        if (request.Contrasena.Length < 12) return BadRequest("La contraseña debe tener al menos 12 caracteres.");
+        if (request.Contrasena.Length < 12) return BadRequest(new ApiErrorResponse("La contraseña debe tener al menos 12 caracteres."));
         var usuario = await db.Usuarios.FindAsync(id);
         if (usuario is null) return NotFound();
         await using var transaction = await db.Database.BeginTransactionAsync();
@@ -103,7 +103,7 @@ public class UsuariosController(TicketsCombustibleDbContext db, IAuditoriaServic
     {
         var usuario = await db.Usuarios.FindAsync(id);
         if (usuario is null) return NotFound();
-        if (long.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var actorId) && actorId == id) return Conflict("No puedes desactivar tu propia cuenta.");
+        if (long.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var actorId) && actorId == id) return Conflict(new ApiErrorResponse("No puedes desactivar tu propia cuenta."));
         var anterior = Snapshot(usuario);
         await using var transaction = await db.Database.BeginTransactionAsync();
         usuario.Activo = false;

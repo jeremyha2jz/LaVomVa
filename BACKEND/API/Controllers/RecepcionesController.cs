@@ -20,7 +20,7 @@ public class RecepcionesController(TicketsCombustibleDbContext db, IAuditoriaSer
     [Authorize(Roles = "ADMINISTRADOR,SUPERVISOR")]
     public async Task<IActionResult> CrearProveedor(CrearProveedorRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request.Nombre)) return BadRequest("El nombre del proveedor es obligatorio.");
+        if (string.IsNullOrWhiteSpace(request.Nombre)) return BadRequest(new ApiErrorResponse("El nombre del proveedor es obligatorio."));
         var proveedor = new Proveedor { Nombre = request.Nombre, Rnc = request.Rnc, Telefono = request.Telefono, Correo = request.Correo, Activo = true };
         db.Proveedores.Add(proveedor);
         await using var transaction = await db.Database.BeginTransactionAsync();
@@ -35,12 +35,12 @@ public class RecepcionesController(TicketsCombustibleDbContext db, IAuditoriaSer
     public async Task<IActionResult> Crear(CrearRecepcionRequest request)
     {
         if (!long.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var actorId)) return Unauthorized();
-        if (request.Detalles.Count == 0) return BadRequest("Debe incluir al menos un tanque.");
-        if (!await db.Proveedores.AnyAsync(x => x.Id == request.ProveedorId && x.Activo)) return BadRequest("Proveedor inválido.");
-        if (!await db.Usuarios.AnyAsync(x => x.Id == actorId && x.Activo)) return BadRequest("Usuario receptor inválido.");
-        if (request.Detalles.Any(x => x.VolumenRecibidoGalones <= 0)) return BadRequest("Cada volumen debe ser mayor que cero.");
-        if (request.Detalles.GroupBy(x => x.TanqueId).Any(x => x.Count() > 1)) return BadRequest("No repita un tanque en la misma recepción.");
-        if (await db.Tanques.CountAsync(x => request.Detalles.Select(d => d.TanqueId).Contains(x.Id) && x.Activo) != request.Detalles.Count) return BadRequest("Uno o más tanques son inválidos.");
+        if (request.Detalles.Count == 0) return BadRequest(new ApiErrorResponse("Debe incluir al menos un tanque."));
+        if (!await db.Proveedores.AnyAsync(x => x.Id == request.ProveedorId && x.Activo)) return BadRequest(new ApiErrorResponse("Proveedor inválido."));
+        if (!await db.Usuarios.AnyAsync(x => x.Id == actorId && x.Activo)) return BadRequest(new ApiErrorResponse("Usuario receptor inválido."));
+        if (request.Detalles.Any(x => x.VolumenRecibidoGalones <= 0)) return BadRequest(new ApiErrorResponse("Cada volumen debe ser mayor que cero."));
+        if (request.Detalles.GroupBy(x => x.TanqueId).Any(x => x.Count() > 1)) return BadRequest(new ApiErrorResponse("No repita un tanque en la misma recepción."));
+        if (await db.Tanques.CountAsync(x => request.Detalles.Select(d => d.TanqueId).Contains(x.Id) && x.Activo) != request.Detalles.Count) return BadRequest(new ApiErrorResponse("Uno o más tanques son inválidos."));
 
         await using var transaction = await db.Database.BeginTransactionAsync();
         foreach (var tankId in request.Detalles.Select(x => x.TanqueId).Order())
