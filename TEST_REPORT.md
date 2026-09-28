@@ -1,5 +1,65 @@
 # Informe de ejecución QA
 
+## Fase RF-24 / RS-02 — inventario API y matriz RBAC
+
+Fecha: 2026-09-27. Corrida final de `pnpm test:all` sobre PostgreSQL temporal reconstruido desde `DATABASE_FINALLL` y migraciones 001–006. El script terminó y eliminó la instancia temporal. No se usó producción, deploy, push ni proveedores externos.
+
+### Resultado
+
+| Suite | Anterior | Nuevos | Total | Pasaron | Fallaron | Omitidos |
+|---|---:|---:|---:|---:|---:|---:|
+| Web (Vitest) | 49 | 0 | 49 | 49 | 0 | 0 |
+| PWA (Node test) | 13 | 0 | 13 | 13 | 0 | 0 |
+| API (xUnit + PostgreSQL) | 186 | 4 | 190 | 190 | 0 | 0 |
+| **Total** | **248** | **4** | **252** | **252** | **0** | **0** |
+
+Se conservaron y pasaron los 248 tests anteriores. Los cuatro nuevos verifican inventario completo + 378 combinaciones RBAC, bootstrap de administrador, generación OpenAPI y protección contra mass assignment en altas de catálogos.
+
+### Cobertura
+
+| Área | Anterior | Nueva |
+|---|---:|---:|
+| API líneas | 91.86% | **94.59%** |
+| API ramas | 77.03% | **79.22%** |
+| API métodos | 93.10% (486/522) | **96.78% (511/528)** |
+| Web líneas | 69.92% | **69.92%** |
+| Web ramas | 50.72% | **50.72%** |
+| PWA líneas | 87.58% | **87.58%** |
+| PWA ramas | 60.87% | **60.87%** |
+
+### RF-24 — API REST
+
+- Estado anterior: **PARTIAL**. Estado nuevo: **PASS**.
+- La prueba de inventario compara los 67 endpoints de controlador obtenidos de `IActionDescriptorCollectionProvider` con los 67 clasificados en `API_ENDPOINT_MATRIX.md`; rutas faltantes, duplicadas o nuevas hacen fallar la suite.
+- La matriz contiene 4 rutas intencionalmente públicas y 63 protegidas. De las protegidas, 46 limitan por roles explícitos y 17 requieren cualquier rol autenticado. `/hubs/inventory` y el negotiate se inventarían aparte como superficie técnica protegida; Swagger se genera mediante `ISwaggerProvider`, y la UI/JSON HTTP solo se mapean en `Development`.
+- Las pruebas existentes siguen cubriendo contratos de usuarios, catálogos, solicitudes, tickets, despacho, recepción, inventario, cierres, notificaciones, auditoría, programaciones, reportes, PDF/CSV/XLSX y QR. OpenAPI confirma rutas y verbos de tickets/cierres.
+- Se reemplazó el retorno de entidad completa en `POST /api/tickets` con un recibo DTO que excluye token y hash QR. Se sustituyeron entidades EF entrantes para altas/ediciones de catálogo y proveedores por DTOs; claves y estado interno de tanque quedan fuera del contrato.
+
+### RS-02 — autorización RBAC
+
+- Estado anterior: **PARTIAL**. Estado nuevo: **PASS**.
+- Roles reales confirmados: `ADMINISTRADOR`, `SUPERVISOR`, `DESPACHADOR`, `SOLICITANTE`, `AUDITOR`, `CONSULTA`.
+- Combinaciones de ruta protegida × rol: **378** (63 × 6), además de **63** solicitudes sin JWT que deben recibir 401. Rutas públicas: 4, verificadas separadamente.
+- Solicitudes permitidas / denegadas por rol: ADMINISTRADOR **63/0**; SUPERVISOR **55/8**; DESPACHADOR **28/35**; SOLICITANTE **18/45**; AUDITOR **26/37**; CONSULTA **17/46**. Cada rol autorizado llega a la ruta real con restricciones de GUID/long cumplidas; las no autorizadas reciben 403.
+- Los metadatos efectivos de `IAuthorizeData` se comparan con la matriz, intersectando las restricciones declaradas a nivel de controlador y acción. La prueba cubre anónimos, fallback autenticado y acceso por roles.
+- Bootstrap: secreto erróneo -> 401; primer uso válido -> 200; uso posterior -> 409; solo se conserva un administrador creado y la respuesta no revela el secreto. QR público firma/valida un token limitado; auditoría y cierres no tienen rutas de edición/borrado. SignalR conserva autenticación JWT y auditoría/notificaciones conservan aislamiento ya probado.
+- CORS revisado en `Program.cs`: desarrollo permite origen/cabeceras/métodos amplios sin credenciales; fuera de desarrollo solo configura orígenes explícitos de `Cors:AllowedOrigins` y tampoco habilita credenciales. README ya documentaba configurar ese origen.
+
+### Bugs
+
+- Encontrados y corregidos: **2**. BUG-15: respuesta de emisión de ticket filtraba token/hash QR; BUG-16: model binding de entidades EF permitía enviar IDs y estado interno de tanque.
+- Pendientes nuevos: **0**. Las regresiones específicas están en `ApiIntegrationTests` y `ApiEndpointMatrixTests`.
+
+### Requisitos
+
+- RF-24: **PARTIAL → PASS**.
+- RS-02: **PARTIAL → PASS**.
+- El total de requisitos en `SRS_TEST_MATRIX.md` queda en **26 PASS, 4 PARTIAL, 0 NOT_TESTABLE, 0 NOT_IMPLEMENTED**. Esta fase no modifica RS-01 ni RS-05.
+
+La corrida integral ejecutó `pnpm test`, `pnpm build`, tests y build de PWA, `dotnet build` y pruebas API con cobertura. Sigue apareciendo el aviso de versiones mezcladas Vitest 5.0.2 / coverage-v8 5.0.1 y dos avisos EF1002 preexistentes de fixtures SQL, sin fallos de build ni de test.
+
+Comando final ejecutado: `pnpm test:all` — **252 passed, 0 failed, 0 skipped**.
+
 ## Fase RF-19/RF-20 — reportes y exportaciones
 
 Fecha: 2026-09-27. Corrida final de `pnpm test:all` con PostgreSQL temporal basado en `DATABASE_FINALLL` y migraciones 001–006. El script terminó y eliminó el clúster temporal. No se usó producción, deploy, push ni proveedores externos.

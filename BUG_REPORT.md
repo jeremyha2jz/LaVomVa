@@ -217,3 +217,29 @@ Durante RF-23 se revisaron los fallos definitivos de entrega, las transacciones 
 - **Corrección:** agregar combustible y tipo de movimiento sobre las entidades SQL; los campos no aplicables a movimientos quedan vacíos, y su total de tickets se fija en cero.
 - **Regression test:** `ApiCoverageTests.Reporte_de_movimientos_es_paginado_y_el_PDF_de_muchos_registros_tiene_varias_paginas`.
 - **Estado:** Corregido y verificado en `pnpm test:all` (248/248, 0 omitidos).
+
+## BUG-15
+
+- **Severidad:** HIGH
+- **Requisito:** RF-06, RF-07, RF-24, RS-02
+- **Componente:** API, `POST /api/tickets`
+- **Reproducción:** emitir un ticket para una solicitud aprobada y revisar el JSON de respuesta.
+- **Resultado esperado:** devolver los campos del recibo necesarios para consultar el ticket; mantener el token QR firmado y su hash privado.
+- **Resultado obtenido:** la acción devolvía la entidad EF `Ticket` completa, incluyendo `QrToken` y `QrHash`.
+- **Causa:** la respuesta `CreatedAtAction` serializaba directamente la entidad persistida.
+- **Corrección:** devolver una proyección explícita de recibo que omite el token y la firma internos. La lectura del ticket también mantiene su DTO reducido; la generación de PNG continúa mediante endpoints QR autorizados o el QR público firmado ya existente.
+- **Regression test:** `ApiIntegrationTests.Solicitud_aprobacion_ticket_qr_y_persistencia_conservan_el_flujo`, `ApiIntegrationTests.Despacho_y_recepcion_actualizan_existencia_y_movimientos_persistidos` y los casos de emisión de `ApiCoverageTests` comprueban que `qrToken` y `qrHash` no salen en la respuesta y que el QR sigue validándose.
+- **Estado:** Corregido y verificado por `pnpm test:all` en la fase RF-24/RS-02 (252/252, 0 omitidos).
+
+## BUG-16
+
+- **Severidad:** MEDIUM
+- **Requisito:** RF-24, RF-13, RF-14
+- **Componente:** API, altas de catálogos (`/api/gestion/*` y `/api/recepciones/proveedores`)
+- **Reproducción:** enviar a los endpoints de creación entidades JSON con `id` explícito; para tanques añadir `existenciaActualGalones`, `notificacionBajoActiva` y `numeroEpisodioBajo`.
+- **Resultado esperado:** aceptar solo campos propios del contrato de alta, generar la clave en la base y crear un tanque vacío con contadores internos iniciales.
+- **Resultado obtenido:** varios controladores recibían entidades EF completas; la solicitud podía establecer la clave primaria y campos de control internos de tanque.
+- **Causa:** model binding directo de entidades persistidas en acciones HTTP de escritura.
+- **Corrección:** introducir DTOs de alta/edición explícitos para departamentos, empleados, vehículos, estaciones, tanques y proveedores; proyectar respuestas sin estado interno del tanque. El nivel inicial se fija en cero y la base genera los IDs.
+- **Regression test:** `ApiEndpointMatrixTests.Catalogos_ignoran_ids_y_estado_interno_en_los_contratos_de_creacion` intenta sobreescribir IDs y atributos internos y verifica respuesta y persistencia.
+- **Estado:** Corregido y verificado por `pnpm test:all` en la fase RF-24/RS-02 (252/252, 0 omitidos).

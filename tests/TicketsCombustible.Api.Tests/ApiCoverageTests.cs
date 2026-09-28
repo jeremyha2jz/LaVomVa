@@ -2665,7 +2665,13 @@ public sealed class ApiCoverageTests(QaFixture qa)
         var response = await Client.PostAsJsonAsync("api/tickets", new { solicitudId = requestId });
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var json = await response.Content.ReadFromJsonAsync<JsonElement>();
-        return new IssuedTicket(json.GetProperty("id").GetGuid(), json.GetProperty("qrToken").GetString()!, requestId);
+        var ticketId = json.GetProperty("id").GetGuid();
+        Assert.False(json.TryGetProperty("qrToken", out _));
+        Assert.False(json.TryGetProperty("qrHash", out _));
+        await using var scope = qa.Factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+        var token = await db.Tickets.Where(x => x.Id == ticketId).Select(x => x.QrToken).SingleAsync();
+        return new IssuedTicket(ticketId, token, requestId);
     }
 
     private async Task<bool> IsQrValidAsync(string token) => (await ValidateQrAsync(token)).GetProperty("valido").GetBoolean();

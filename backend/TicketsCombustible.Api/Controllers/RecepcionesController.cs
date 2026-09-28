@@ -18,15 +18,16 @@ public class RecepcionesController(TicketsCombustibleDbContext db, IAuditoriaSer
 
     [HttpPost("proveedores")]
     [Authorize(Roles = "ADMINISTRADOR,SUPERVISOR")]
-    public async Task<IActionResult> CrearProveedor(Proveedor proveedor)
+    public async Task<IActionResult> CrearProveedor(CrearProveedorRequest request)
     {
-        if (string.IsNullOrWhiteSpace(proveedor.Nombre)) return BadRequest("El nombre del proveedor es obligatorio.");
+        if (string.IsNullOrWhiteSpace(request.Nombre)) return BadRequest("El nombre del proveedor es obligatorio.");
+        var proveedor = new Proveedor { Nombre = request.Nombre, Rnc = request.Rnc, Telefono = request.Telefono, Correo = request.Correo, Activo = true };
         db.Proveedores.Add(proveedor);
         await using var transaction = await db.Database.BeginTransactionAsync();
         await db.SaveChangesAsync();
         await auditoria.RegistrarAsync("SUPPLIER_CREATED", "PROVEEDOR", proveedor.Id.ToString(), "EXITO", datosNuevos: new { proveedor.Id, proveedor.Nombre, proveedor.Rnc, proveedor.Telefono, proveedor.Correo, proveedor.Activo });
         await transaction.CommitAsync();
-        return Created($"api/recepciones/proveedores/{proveedor.Id}", proveedor);
+        return Created($"api/recepciones/proveedores/{proveedor.Id}", new { proveedor.Id, proveedor.Nombre, proveedor.Rnc, proveedor.Telefono, proveedor.Correo, proveedor.Activo });
     }
 
     [HttpPost]
@@ -74,6 +75,8 @@ public class RecepcionesController(TicketsCombustibleDbContext db, IAuditoriaSer
         return Created($"api/recepciones/{recepcion.Id}", new { recepcion, request.Detalles });
     }
 }
+
+public sealed record CrearProveedorRequest(string Nombre, string? Rnc, string? Telefono, string? Correo);
 
 public record DetalleRecepcionRequest(long TanqueId, decimal VolumenRecibidoGalones, decimal? CostoUnitario);
 public record CrearRecepcionRequest(long ProveedorId, string NumeroFactura, DateTime FechaRecepcion, long UsuarioReceptorId, string? Observaciones, List<DetalleRecepcionRequest> Detalles);

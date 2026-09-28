@@ -142,6 +142,8 @@ public sealed class ApiIntegrationTests(QaFixture qa)
         var ticketResponse = await Client.PostAsJsonAsync("api/tickets", new { solicitudId = requestId, usuarioEmisorId = admin.Id });
         Assert.Equal(HttpStatusCode.Created, ticketResponse.StatusCode);
         var ticket = await ticketResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(ticket.TryGetProperty("qrToken", out _));
+        Assert.False(ticket.TryGetProperty("qrHash", out _));
         var ticketId = ticket.GetProperty("id").GetGuid();
         Assert.Equal("COM-2026-000001", ticket.GetProperty("numeroSecuencial").GetString());
         Assert.Equal(8m, ticket.GetProperty("cantidadAutorizadaGalones").GetDecimal());
@@ -149,7 +151,7 @@ public sealed class ApiIntegrationTests(QaFixture qa)
         var qr = await Client.GetAsync($"api/tickets/{ticketId}/qr");
         Assert.Equal("image/png", qr.Content.Headers.ContentType?.MediaType);
         Assert.True((await qr.Content.ReadAsByteArrayAsync()).Length > 100);
-        var token = ticket.GetProperty("qrToken").GetString();
+        var token = await db.Tickets.Where(x => x.Id == ticketId).Select(x => x.QrToken).SingleAsync();
         var validation = await Client.PostAsJsonAsync("api/tickets/validar", new { qrData = token });
         Assert.Equal(HttpStatusCode.OK, validation.StatusCode);
         Assert.True((await validation.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("valido").GetBoolean());
@@ -203,7 +205,9 @@ public sealed class ApiIntegrationTests(QaFixture qa)
         Assert.Equal(HttpStatusCode.OK, (await Client.PutAsJsonAsync($"api/solicitudes/{reqId}/aprobar", new { cantidadAutorizadaGalones = 8m, fechaVencimiento = expiry, usuarioAprobadorId = admin.Id })).StatusCode);
         var ticket = await (await Client.PostAsJsonAsync("api/tickets", new { solicitudId = reqId })).Content.ReadFromJsonAsync<JsonElement>();
         var ticketId = ticket.GetProperty("id").GetGuid();
-        var token = ticket.GetProperty("qrToken").GetString();
+        Assert.False(ticket.TryGetProperty("qrToken", out _));
+        Assert.False(ticket.TryGetProperty("qrHash", out _));
+        var token = await db.Tickets.Where(x => x.Id == ticketId).Select(x => x.QrToken).SingleAsync();
         Assert.True((await (await Client.PostAsJsonAsync("api/tickets/validar", new { qrData = token })).Content.ReadFromJsonAsync<JsonElement>()).GetProperty("valido").GetBoolean());
         var dispatch = await Client.PostAsJsonAsync("api/despachos", new { ticketId = ticketId.ToString(), galonesServidos = 6m, identidadConfirmada = true, tanqueId = tankId });
         Assert.Equal(HttpStatusCode.OK, dispatch.StatusCode);
@@ -224,7 +228,9 @@ public sealed class ApiIntegrationTests(QaFixture qa)
         Assert.Equal(HttpStatusCode.OK, (await Client.PutAsJsonAsync($"api/solicitudes/{secondRequestId}/aprobar", new { cantidadAutorizadaGalones = 8m, fechaVencimiento = expiry, usuarioAprobadorId = admin.Id })).StatusCode);
         var secondTicket = await (await Client.PostAsJsonAsync("api/tickets", new { solicitudId = secondRequestId })).Content.ReadFromJsonAsync<JsonElement>();
         var secondTicketId = secondTicket.GetProperty("id").GetGuid();
-        var secondQr = secondTicket.GetProperty("qrToken").GetString();
+        Assert.False(secondTicket.TryGetProperty("qrToken", out _));
+        Assert.False(secondTicket.TryGetProperty("qrHash", out _));
+        var secondQr = await db.Tickets.Where(x => x.Id == secondTicketId).Select(x => x.QrToken).SingleAsync();
         using var clientA = qa.Factory.CreateClient();
         using var clientB = qa.Factory.CreateClient();
         var operatorA = await AddUserAndLoginAsync("qa.dispatcher.a", "DESPACHADOR");

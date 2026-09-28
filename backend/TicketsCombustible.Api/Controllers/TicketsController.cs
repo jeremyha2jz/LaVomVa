@@ -111,7 +111,19 @@ public class TicketsController(TicketsCombustibleDbContext db, IConfiguration co
         await db.Entry(ticket).ReloadAsync();
         await auditoria.RegistrarAsync("TICKET_ISSUED", "TICKET", ticket.NumeroSecuencial, "EXITO", datosNuevos: Snapshot(ticket));
         await transaction.CommitAsync();
-        return CreatedAtAction(nameof(Obtener), new { id = ticket.Id }, ticket);
+        return CreatedAtAction(nameof(Obtener), new { id = ticket.Id }, new
+        {
+            ticket.Id,
+            ticket.NumeroSecuencial,
+            Estado = lifecycle.EstadoActual(ticket),
+            ticket.EmpleadoId,
+            ticket.VehiculoId,
+            ticket.DepartamentoId,
+            ticket.TipoCombustibleId,
+            ticket.CantidadAutorizadaGalones,
+            ticket.FechaCreacion,
+            ticket.FechaVencimiento
+        });
     }
 
     [HttpPost("validar")]
