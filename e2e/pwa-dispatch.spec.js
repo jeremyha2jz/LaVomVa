@@ -295,7 +295,8 @@ async function createCameraVideo(sourcePng, filename) {
   const width = 640;
   const height = 480;
   const source = PNG.sync.read(Buffer.from(sourcePng));
-  const scale = Math.min(360 / source.width, 360 / source.height);
+  // Keep the complete QR (including its quiet zone) inside the PWA's 250px scan box.
+  const scale = Math.min(220 / source.width, 220 / source.height);
   const drawWidth = Math.round(source.width * scale);
   const drawHeight = Math.round(source.height * scale);
   const rgba = Buffer.alloc(width * height * 4, 255);

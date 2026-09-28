@@ -22,7 +22,6 @@
     "vite": "latest"
   },
   "devDependencies": {
-    "@eslint/js": "latest",
     "@playwright/test": "1.63.0",
     "@testing-library/jest-dom": "latest",
     "@testing-library/react": "latest",
@@ -30,10 +29,6 @@
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "@vitest/coverage-v8": "5.0.1",
-    "eslint": "latest",
-    "eslint-plugin-react-hooks": "latest",
-    "eslint-plugin-react-refresh": "latest",
-    "globals": "latest",
     "jsdom": "latest",
     "pngjs": "7.0.0",
     "qrcode": "1.5.4",
