@@ -9,7 +9,7 @@ Inventario generado contra los 15 controladores y contrastado en pruebas con `IA
 - Protegidas: **65**; de ellas, **46** tienen roles restringidos y **19** admiten a cualquiera de los seis roles autenticados.
 - SeñalR: `/hubs/inventory` y su transporte `POST /hubs/inventory/negotiate` son rutas técnicas protegidas por `[Authorize]`; no son acciones REST MVC.
 - Swagger/UI y `/swagger/v1/swagger.json` solo se registran en `Development`; `Testing` no registra health checks ni otras rutas técnicas HTTP.
-- Roles sembrados por `DATABASE_FINALLL`: `ADMINISTRADOR`, `SUPERVISOR`, `DESPACHADOR`, `SOLICITANTE`, `AUDITOR`, `CONSULTA`.
+- Roles sembrados por `BASEDATOS/schema/DATABASE_FINALLL`: `ADMINISTRADOR`, `SUPERVISOR`, `DESPACHADOR`, `SOLICITANTE`, `AUDITOR`, `CONSULTA`.
 - Todas las rutas protegidas: sin JWT -> 401. Rol no permitido -> 403. Para cada uno de los 6 roles se ejecuta una solicitud autenticada por ruta; el rol permitido debe pasar autorización y no puede recibir 401, 403 ni 5xx. La prueba da tolerancia a respuestas funcionales 2xx/400/404/409 según el recurso o cuerpo del caso.
 
 `*` significa que cualquiera de los seis roles puede acceder tras autenticarse. Las listas son roles autorizados explícitos. Las rutas anónimas se indican como `Pública`.
@@ -125,4 +125,4 @@ Las operaciones históricas de auditoría y cierre solo exponen GET/POST de crea
 
 ## Pruebas contractuales relacionadas
 
-La matriz completa complementa, sin reemplazar, los tests de integración ya existentes para usuarios y baja lógica, catálogo y duplicados, solicitudes/aprobación/rechazo, despacho/recepción y movimientos, cierres/PDF/inmutabilidad, reportes CSV/XLSX/PDF, envíos/reintentos, notificaciones/IDOR, auditoría de solo lectura, QR, bootstrap y SignalR. Todos los contratos se prueban con PostgreSQL temporal sembrado desde `DATABASE_FINALLL`.
+La matriz completa complementa, sin reemplazar, los tests de integración ya existentes para usuarios y baja lógica, catálogo y duplicados, solicitudes/aprobación/rechazo, despacho/recepción y movimientos, cierres/PDF/inmutabilidad, reportes CSV/XLSX/PDF, envíos/reintentos, notificaciones/IDOR, auditoría de solo lectura, QR, bootstrap y SignalR. Todos los contratos se prueban con PostgreSQL temporal sembrado desde `BASEDATOS/schema/DATABASE_FINALLL`.

@@ -13,7 +13,7 @@ La web usa `/api` y Vite lo redirige a `http://localhost:5007` en desarrollo. Lo
 | Reportes | Cálculo y exportación CSV en el navegador |
 | Despacho | La web muestra la indicación del punto de suministro; la operación corresponde a la app móvil |
 
-Para iniciar la instalación, ejecuta `DATABASE_FINALLL`, configura los secretos privados y crea el primer administrador con `POST /api/login/inicializar-admin` y `Bootstrap__Secret` de al menos 32 caracteres. Solo se acepta cuando aún no hay ningún administrador.
+Para iniciar la instalación, ejecuta `BASEDATOS/schema/DATABASE_FINALLL`, configura los secretos privados y crea el primer administrador con `POST /api/login/inicializar-admin` y `Bootstrap__Secret` de al menos 32 caracteres. Solo se acepta cuando aún no hay ningún administrador.
 
 ## Límites actuales
 

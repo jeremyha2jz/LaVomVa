@@ -1,3 +1,5 @@
+> Nota de rutas: las rutas históricas de este informe describen fielmente el repositorio en la fecha de cada hallazgo. El repositorio se reorganizó después; el código actual está bajo `APPMOBILE/`, `APPWEB/`, `BACKEND/` y `BASEDATOS/`.
+
 # Informe de ejecución QA
 
 ## Fase final RF-13 / RS-03 — PWA E2E y TLS / secretos

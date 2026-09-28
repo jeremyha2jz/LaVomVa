@@ -455,4 +455,4 @@ certs/private/
 playwright-report/
 test-results/
 tmp/
-backend/TicketsCombustible.Api/appsettings.Development.json
+BACKEND/API/appsettings.Development.json

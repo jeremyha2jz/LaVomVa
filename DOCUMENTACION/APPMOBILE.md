@@ -4,12 +4,11 @@ Aplicación del despachador para iniciar sesión, leer QR con la cámara, valida
 
 ## Desarrollo
 
-Desde la raíz del repositorio, inicia la API en `http://localhost:5007` y luego:
+Desde la raíz del repositorio, instala el workspace y arranca la API en `http://localhost:5007`. Inicia la PWA con:
 
 ```bash
-cd app-movil
-npm ci
-npm run dev -- --host 127.0.0.1 --port 5174
+npm --prefix APPMOBILE ci
+npm --prefix APPMOBILE run dev -- --host 127.0.0.1 --port 5174
 ```
 
 Vite reenvía `/api` al backend. Para cambiar el destino local usa `VITE_API_PROXY_TARGET`; esa variable configura el proxy del servidor y no debe contener secretos. Para acceder a la cámara desde un dispositivo físico, sirve la app por HTTPS; los navegadores permiten cámara sobre `localhost` durante desarrollo.
@@ -17,8 +16,8 @@ Vite reenvía `/api` al backend. Para cambiar el destino local usa `VITE_API_PRO
 ## Pruebas
 
 ```bash
-npm test
-npm run build
+npm --prefix APPMOBILE test
+npm --prefix APPMOBILE run build
 ```
 
 Desde la raíz, `pnpm test:e2e` ejecuta Playwright con Chromium, API/PWA locales y PostgreSQL temporal. Crea tickets en la base de prueba, obtiene PNG QR de la API y los reproduce mediante cámara sintética para cubrir login, despacho e inventario, permisos, QR inválido/vencido/consumido, conflicto de stock y caída de red. El clúster temporal y los procesos se eliminan al terminar. Instala Chromium una vez con `pnpm exec playwright install chromium`.

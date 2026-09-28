@@ -1,5 +1,16 @@
 # LaVomVa — Tickets Digitales e Inventario de Combustible
 
+
+## Estructura del repositorio
+
+- `APPMOBILE/`: PWA del despachador, assets, pruebas unitarias y E2E.
+- `APPWEB/`: aplicación web, componentes, pruebas, Vite y TypeScript.
+- `BACKEND/`: API ASP.NET Core y pruebas .NET.
+- `BASEDATOS/`: esquema PostgreSQL y migraciones SQL.
+- `DOCUMENTACION/`: matrices SRS, QA y guías técnicas.
+- `scripts/`: instalación y orquestación de pruebas.
+
+
 Sistema para controlar el despacho e inventario de combustible mediante tickets digitales con código QR. Se compone de una web administrativa en React, una API REST en ASP.NET Core 8, una aplicación móvil PWA para el despachador y una base de datos PostgreSQL con la numeración de tickets y el inventario resueltos en triggers. Se ejecuta en local, en Windows, sin Docker.
 
 Se basa en el documento *SRS Plataforma Web y Aplicación Móvil para Gestión de Tickets Digitales e Inventario de Combustible* (v1.0, agosto 2026), proyecto académico de INTEC.
@@ -26,17 +37,17 @@ Con Node.js, pnpm, .NET SDK 8, Python 3 y los binarios de PostgreSQL (`initdb`, 
 
 ```bash
 pnpm install --frozen-lockfile
-npm --prefix app-movil ci
+npm --prefix APPMOBILE ci
 pnpm test:all
 ```
 
-El comando crea una instancia PostgreSQL temporal, carga `DATABASE_FINALLL`, ejecuta Vitest, las pruebas PWA/service worker, el escáner local de secretos, las pruebas API con cobertura y las compilaciones web/PWA/API. Al terminar, detiene y elimina esa instancia. Nunca apunta a una base configurada por el usuario. Para validar la interfaz móvil real en Chromium instala una vez el navegador con `pnpm exec playwright install chromium` y ejecuta `pnpm test:e2e`; este comando crea su propio PostgreSQL temporal, arranca API/PWA en loopback y limpia la infraestructura al terminar. La cámara sintética reproduce en Chromium PNG de tickets emitidos por la API temporal. `pnpm test:e2e` queda separado de `pnpm test:all` porque necesita Chromium.
+El comando crea una instancia PostgreSQL temporal, carga `BASEDATOS/schema/DATABASE_FINALLL`, ejecuta Vitest, las pruebas PWA/service worker, el escáner local de secretos, las pruebas API con cobertura y las compilaciones web/PWA/API. Al terminar, detiene y elimina esa instancia. Nunca apunta a una base configurada por el usuario. Para validar la interfaz móvil real en Chromium instala una vez el navegador con `pnpm exec playwright install chromium` y ejecuta `pnpm test:e2e`; este comando crea su propio PostgreSQL temporal, arranca API/PWA en loopback y limpia la infraestructura al terminar. La cámara sintética reproduce en Chromium PNG de tickets emitidos por la API temporal. `pnpm test:e2e` queda separado de `pnpm test:all` porque necesita Chromium.
 
-Comprobaciones individuales: `pnpm test`, `pnpm --dir app-movil test`, `pnpm test:security` y `dotnet test tests/TicketsCombustible.Api.Tests/TicketsCombustible.Api.Tests.csproj` (esta última requiere `QA_TEST_CONNECTION` hacia una base aislada con el esquema y migraciones cargados).
+Comprobaciones individuales: `pnpm test`, `npm --prefix APPMOBILE test`, `pnpm test:security` y `dotnet test BACKEND/Tests/API/TicketsCombustible.Api.Tests.csproj` (esta última requiere `QA_TEST_CONNECTION` hacia una base aislada con el esquema y migraciones cargados).
 
 ## Funcionalidades disponibles
 
-**Web administrativa** (`src/`)
+**Web administrativa** (`APPWEB/src/`)
 
 - Sesión con inicio de sesión, registro público de cuentas de consulta sujetas a activación administrativa y datos cargados exclusivamente desde PostgreSQL.
 - Resumen: inventario total, despachado hoy, tickets activos, solicitudes pendientes, consumo de los últimos 7 días, nivel por tanque y aviso de tanques por debajo del nivel crítico.
@@ -48,7 +59,7 @@ Comprobaciones individuales: `pnpm test`, `pnpm --dir app-movil test`, `pnpm tes
 - Catálogos: consulta, creación, edición y desactivación de empleados, vehículos y departamentos según el rol.
 - Campana de notificaciones persistidas, cargada mediante REST y sincronizada al reconectar. También cuenta tickets vencidos o por vencer, pero la base nunca les asigna esos estados, así que en modo conectado no aparecen.
 
-**API** (`backend/TicketsCombustible.Api/`)
+**API** (`BACKEND/API/`)
 
 - Inicio de sesión (`POST /api/login`) que devuelve un access JWT de 15 minutos, refresh token opaco, vencimiento, id, nombre y rol. El access JWT valida firma HS256, issuer, audience, expiración, usuario activo y roles actuales.
 - Sesiones: `POST /api/login/refresh` rota el refresh token; `POST /api/login/logout` revoca la familia actual; `POST /api/login/logout-all` revoca todas las sesiones; `POST /api/login/cambiar-contrasena` cambia la clave y revoca todas las sesiones. Un reset administrativo, cambio de rol o desactivación también revoca refresh tokens. Si un refresh ya rotado se reutiliza, se revoca toda la familia. Los access JWT existentes pueden seguir utilizándose hasta su expiración (máximo 15 minutos) salvo que la cuenta se desactive o cambien sus roles, que se validan en cada solicitud.
@@ -64,7 +75,7 @@ Comprobaciones individuales: `pnpm test`, `pnpm --dir app-movil test`, `pnpm tes
 - Hub SignalR autenticado en `/hubs/inventory`: emite `InventoryUpdated`, `InventoryMovementCreated` y `CriticalInventoryChanged` usando el libro mayor persistido por PostgreSQL. Requiere el JWT de la sesión; solo se aceptan eventos de movimientos después del commit. Todos los roles autenticados pueden leer inventario en REST y, por tanto, pueden conectar al Hub.
 - Reportes autenticados: `GET /api/reportes` acepta `tipo` (`consumo`, `tickets`, `despachos`, `movimientos`), `desde`, `hasta`, `departamentoId`, `combustibleId`, `empleadoId`, `vehiculoId`, `estado`, `estacionId`, `pagina` y `tamanoPagina`. `GET /api/reportes/exportar` acepta los mismos filtros, excepto paginación, y `formato=csv|xlsx|pdf`. Todos los roles autenticados pueden consultarlos; la fecha inicial/final es UTC e inclusiva. Exportación limitada a 10 000 filas por archivo.
 
-**App móvil del despachador** (`app-movil/`)
+**App móvil del despachador** (`APPMOBILE/`)
 
 - Inicio de sesión, escaneo del QR con la cámara trasera, pantalla de ticket válido o inválido, formulario de despacho y lista de tickets.
 
@@ -143,7 +154,7 @@ Desde pgAdmin 4 o `psql`, crea la base y carga el script completo (esquema, trig
 
 ```powershell
 psql -U postgres -h localhost -c "CREATE DATABASE tickets_combustible;"
-psql -U postgres -h localhost -d tickets_combustible -v ON_ERROR_STOP=1 -f DATABASE_FINALLL
+psql -U postgres -h localhost -d tickets_combustible -v ON_ERROR_STOP=1 -f BASEDATOS/schema/DATABASE_FINALLL
 ```
 
 Si `psql` no está en el PATH, usa la ruta completa, por ejemplo `"C:\Program Files\PostgreSQL\18\bin\psql.exe"`. El script deja 21 tablas y 5 vistas. No tiene sentencias `DROP`: ejecútalo una sola vez sobre una base vacía.
@@ -151,8 +162,8 @@ Si `psql` no está en el PATH, usa la ruta completa, por ejemplo `"C:\Program Fi
 ### 3. Crear la configuración privada de la API
 
 ```powershell
-Copy-Item "backend\TicketsCombustible.Api\appsettings.Development.example.json" "backend\TicketsCombustible.Api\appsettings.Development.json"
-notepad "backend\TicketsCombustible.Api\appsettings.Development.json"
+Copy-Item "BACKEND\API\appsettings.Development.example.json" "BACKEND\API\appsettings.Development.json"
+notepad "BACKEND\API\appsettings.Development.json"
 ```
 
 En `appsettings.Development.json` reemplaza:
@@ -164,20 +175,20 @@ En `appsettings.Development.json` reemplaza:
 
 El archivo está excluido del control de versiones. También se pueden usar variables de entorno: `ConnectionStrings__TicketsCombustible`, `Jwt__Key` y `Qr__SigningSecret`.
 
-Aplica también la migración `backend/TicketsCombustible.Api/Migrations/007_auth_sessions.sql` después de cargar `DATABASE_FINALLL`; crea la tabla de sesiones y sus índices únicos/de familia.
+Aplica también la migración `BASEDATOS/migrations/007_auth_sessions.sql` después de cargar `BASEDATOS/schema/DATABASE_FINALLL`; crea la tabla de sesiones y sus índices únicos/de familia.
 
 ### 4. Arrancar la API
 
 ```powershell
-dotnet run --project backend\TicketsCombustible.Api --launch-profile http
+dotnet run --project BACKEND\API\TicketsCombustible.Api.csproj --launch-profile http
 ```
 
 ### 5. Instalar y arrancar la web
 
 ```powershell
-Copy-Item ".env.example" ".env"
+Copy-Item "APPWEB\.env.example" "APPWEB\.env"
 pnpm install --frozen-lockfile
-pnpm dev
+pnpm dev:web
 ```
 
 La web requiere la API y PostgreSQL. El proxy de Vite envía `/api` a `http://localhost:5007`.
@@ -185,12 +196,11 @@ La web requiere la API y PostgreSQL. El proxy de Vite envía `/api` a `http://lo
 ### 6. Arrancar la app móvil (opcional)
 
 ```powershell
-cd app-movil
-npm install
-npm run dev -- --port 5174
+npm --prefix APPMOBILE ci
+npm --prefix APPMOBILE run dev -- --port 5174
 ```
 
-Para usar un celular real, la cámara necesita HTTPS: expón la app con `ngrok http 5174` (`app-movil/vite.config.js` ya acepta los dominios de ngrok) y ábrela en el teléfono.
+Para usar un celular real, la cámara necesita HTTPS: expón la app con `ngrok http 5174` (`APPMOBILE/vite.config.js` ya acepta los dominios de ngrok) y ábrela en el teléfono.
 
 Servicios locales:
 
@@ -240,41 +250,48 @@ Fuera de Development la API aplica redirección HTTPS y HSTS. TestServer verific
 Compilar la API:
 
 ```powershell
-dotnet build backend\TicketsCombustible.Api
+dotnet build BACKEND\API\TicketsCombustible.Api.csproj
 ```
 
-Comprobar tipos y generar la web de producción (queda en `dist/`):
+Comprobar tipos y generar la web de producción (queda en `APPWEB/dist/`):
 
 ```powershell
 pnpm build
-pnpm preview
+pnpm preview:web
 ```
 
-Generar la app móvil de producción (queda en `app-movil/dist`):
+Generar la app móvil de producción (queda en `APPMOBILE/dist`):
 
 ```powershell
-cd app-movil
-npm run build
+pnpm build:mobile
 ```
 
-La app móvil tiene un modo simulado: en `app-movil/src/services/ticketService.js`, `USE_MOCK = true` usa `mockData.js` (usuario `despachador1` / `1234`).
+La app móvil tiene un modo simulado: en `APPMOBILE/src/services/ticketService.js`, `USE_MOCK = true` usa `mockData.js` (usuario `despachador1` / `1234`).
 
 Las suites automatizadas se describen en "Pruebas automatizadas"; ejecuta `pnpm test:all` para validar API, web y PWA.
 
 ## Estructura principal
 
 ```text
-src/                               Web administrativa (React + TypeScript)
-  pages/                           Resumen, solicitudes, tickets, despacho, inventario, movimientos, catálogos, reportes y administración
-  services/api.ts                  Cliente de la API y adaptación de sus respuestas
-  context/AppContext.tsx           Estado de la aplicación conectado a la API
-backend/TicketsCombustible.Api/    API REST .NET 8
-  Controllers/                     Login, catálogos, gestión, usuarios, solicitudes, tickets, despachos, inventario y recepciones
-  Models/ y Data/                  Entidades y DbContext de Entity Framework
-app-movil/                         PWA del despachador (Vite, JavaScript)
-DATABASE_FINALLL                   Script de PostgreSQL: tablas, triggers, índices, datos iniciales y vistas
-docs/INTEGRACION_BACKEND.md        Estado de la integración entre la web y la API
-```
+APPMOBILE/
+  src/                              PWA y servicios
+  public/                           manifest, service worker, iconos y pruebas
+  e2e/                              Playwright PWA
+APPWEB/
+  src/                              Aplicación React, páginas, componentes y tests
+  public/                           Assets web
+  vite.config.ts, tsconfig*.json    Configuración web
+BACKEND/
+  API/                              API REST .NET 8
+  Tests/API/                        Pruebas unitarias e integración .NET
+  Tests/E2ESupport/                 Fixtures utilizados por Playwright
+BASEDATOS/
+  schema/DATABASE_FINALLL           Esquema PostgreSQL
+  migrations/                       Migraciones SQL ordenadas
+DOCUMENTACION/                      Matrices SRS, QA y guías técnicas
+scripts/                            Suites de pruebas globales y seguridad
+package.json, pnpm-lock.yaml        Orquestación y dependencias web/E2E
+README.md                           Entrada al repositorio`
 
 ## Consideraciones
 

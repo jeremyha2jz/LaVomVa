@@ -29,30 +29,30 @@ qa_port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0))
 "$pg_bindir/initdb" -D "$qa_tmp/data" -U qa_runner --auth-local=trust --auth-host=trust --no-instructions >/dev/null
 "$pg_bindir/pg_ctl" -D "$qa_tmp/data" -l "$qa_tmp/postgres.log" -o "-h 127.0.0.1 -p $qa_port -k $qa_tmp/socket" -w start >/dev/null
 "$pg_bindir/createdb" -h 127.0.0.1 -p "$qa_port" -U qa_runner lavomva_test
-"$pg_bindir/psql" -h 127.0.0.1 -p "$qa_port" -U qa_runner -d lavomva_test -v ON_ERROR_STOP=1 -f DATABASE_FINALLL >/dev/null
-"$pg_bindir/psql" -h 127.0.0.1 -p "$qa_port" -U qa_runner -d lavomva_test -v ON_ERROR_STOP=1 -f backend/TicketsCombustible.Api/Migrations/001_auditoria_inmutable_y_resultado.sql >/dev/null
-"$pg_bindir/psql" -h 127.0.0.1 -p "$qa_port" -U qa_runner -d lavomva_test -v ON_ERROR_STOP=1 -f backend/TicketsCombustible.Api/Migrations/002_ticket_lifecycle.sql >/dev/null
-"$pg_bindir/psql" -h 127.0.0.1 -p "$qa_port" -U qa_runner -d lavomva_test -v ON_ERROR_STOP=1 -f backend/TicketsCombustible.Api/Migrations/003_cierre_diario.sql >/dev/null
-"$pg_bindir/psql" -h 127.0.0.1 -p "$qa_port" -U qa_runner -d lavomva_test -v ON_ERROR_STOP=1 -f backend/TicketsCombustible.Api/Migrations/004_ticket_delivery.sql >/dev/null
-"$pg_bindir/psql" -h 127.0.0.1 -p "$qa_port" -U qa_runner -d lavomva_test -v ON_ERROR_STOP=1 -f backend/TicketsCombustible.Api/Migrations/005_solicitud_scheduling.sql >/dev/null
-"$pg_bindir/psql" -h 127.0.0.1 -p "$qa_port" -U qa_runner -d lavomva_test -v ON_ERROR_STOP=1 -f backend/TicketsCombustible.Api/Migrations/006_persistent_notifications.sql >/dev/null
-"$pg_bindir/psql" -h 127.0.0.1 -p "$qa_port" -U qa_runner -d lavomva_test -v ON_ERROR_STOP=1 -f backend/TicketsCombustible.Api/Migrations/007_auth_sessions.sql >/dev/null
+"$pg_bindir/psql" -h 127.0.0.1 -p "$qa_port" -U qa_runner -d lavomva_test -v ON_ERROR_STOP=1 -f BASEDATOS/schema/DATABASE_FINALLL >/dev/null
+"$pg_bindir/psql" -h 127.0.0.1 -p "$qa_port" -U qa_runner -d lavomva_test -v ON_ERROR_STOP=1 -f BASEDATOS/migrations/001_auditoria_inmutable_y_resultado.sql >/dev/null
+"$pg_bindir/psql" -h 127.0.0.1 -p "$qa_port" -U qa_runner -d lavomva_test -v ON_ERROR_STOP=1 -f BASEDATOS/migrations/002_ticket_lifecycle.sql >/dev/null
+"$pg_bindir/psql" -h 127.0.0.1 -p "$qa_port" -U qa_runner -d lavomva_test -v ON_ERROR_STOP=1 -f BASEDATOS/migrations/003_cierre_diario.sql >/dev/null
+"$pg_bindir/psql" -h 127.0.0.1 -p "$qa_port" -U qa_runner -d lavomva_test -v ON_ERROR_STOP=1 -f BASEDATOS/migrations/004_ticket_delivery.sql >/dev/null
+"$pg_bindir/psql" -h 127.0.0.1 -p "$qa_port" -U qa_runner -d lavomva_test -v ON_ERROR_STOP=1 -f BASEDATOS/migrations/005_solicitud_scheduling.sql >/dev/null
+"$pg_bindir/psql" -h 127.0.0.1 -p "$qa_port" -U qa_runner -d lavomva_test -v ON_ERROR_STOP=1 -f BASEDATOS/migrations/006_persistent_notifications.sql >/dev/null
+"$pg_bindir/psql" -h 127.0.0.1 -p "$qa_port" -U qa_runner -d lavomva_test -v ON_ERROR_STOP=1 -f BASEDATOS/migrations/007_auth_sessions.sql >/dev/null
 export QA_TEST_CONNECTION="Host=127.0.0.1;Port=$qa_port;Database=lavomva_test;Username=qa_runner;Pooling=false"
 
 echo "== Web unit tests =="
 pnpm test
 echo "== Web build =="
-pnpm run build
+pnpm build:web
 echo "== Mobile unit tests =="
-pnpm --dir app-movil test
+npm --prefix APPMOBILE test
 echo "== Secret and configuration regression tests =="
 pnpm test:security
 echo "== Mobile build =="
-pnpm --dir app-movil run build
+npm --prefix APPMOBILE run build
 echo "== API build =="
-dotnet build backend/TicketsCombustible.Api/TicketsCombustible.Api.csproj --configuration Release
+dotnet build BACKEND/API/TicketsCombustible.Api.csproj --configuration Release
 echo "== API integration tests + coverage (PostgreSQL aislado) =="
-dotnet test tests/TicketsCombustible.Api.Tests/TicketsCombustible.Api.Tests.csproj --configuration Release --collect:"XPlat Code Coverage" --results-directory "$qa_tmp/TestResults" --logger "console;verbosity=minimal"
+dotnet test BACKEND/Tests/API/TicketsCombustible.Api.Tests.csproj --configuration Release --collect:"XPlat Code Coverage" --results-directory "$qa_tmp/TestResults" --logger "console;verbosity=minimal"
 python3 - "$qa_tmp/TestResults" <<'PY'
 import pathlib, sys, xml.etree.ElementTree as ET
 files = list(pathlib.Path(sys.argv[1]).rglob("coverage.cobertura.xml"))

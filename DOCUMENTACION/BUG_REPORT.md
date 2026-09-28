@@ -1,3 +1,5 @@
+> Nota de rutas: las rutas históricas de este informe describen fielmente el repositorio en la fecha de cada hallazgo. El repositorio se reorganizó después; el código actual está bajo `APPMOBILE/`, `APPWEB/`, `BACKEND/` y `BASEDATOS/`.
+
 # Informe de bugs QA
 
 Todos los flujos se validaron en una instancia PostgreSQL temporal con datos de prueba sintéticos. No se conectó producción ni se usaron credenciales personales.

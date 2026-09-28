@@ -25,7 +25,7 @@ const videos = new Map();
 test.beforeAll(async () => {
   if (!apiUrl || !pwaUrl || !tmp) throw new Error('E2E requiere los servidores locales y PostgreSQL temporal de scripts/test-e2e.sh.');
   await mkdir(tmp, { recursive: true });
-  execFileSync('dotnet', ['scripts/e2e-support/bin/Release/net8.0/E2eSupport.dll', 'reset'], { env: process.env, stdio: 'pipe' });
+  execFileSync('dotnet', ['BACKEND/Tests/E2ESupport/bin/Release/net8.0/E2eSupport.dll', 'reset'], { env: process.env, stdio: 'pipe' });
   api = await request.newContext({ baseURL: apiUrl });
 
   const bootstrap = await api.post('/api/login/inicializar-admin', { data: {
@@ -79,7 +79,7 @@ test.beforeAll(async () => {
   validTicket = await createTicket({ department, employee, vehicle, fuel, expiration, quantity: 5, suffix: 'valid' });
   lowStockTicket = await createTicket({ department, employee, vehicle, fuel, expiration, quantity: 10, suffix: 'low' });
   expiredTicket = await createTicket({ department, employee, vehicle, fuel, expiration, quantity: 2, suffix: 'expired' });
-  execFileSync('dotnet', ['scripts/e2e-support/bin/Release/net8.0/E2eSupport.dll', 'expire', expiredTicket.id], { env: process.env, stdio: 'pipe' });
+  execFileSync('dotnet', ['BACKEND/Tests/E2ESupport/bin/Release/net8.0/E2eSupport.dll', 'expire', expiredTicket.id], { env: process.env, stdio: 'pipe' });
 
   for (const [name, ticket] of [['valid', validTicket], ['low', lowStockTicket], ['expired', expiredTicket]]) {
     const response = await api.get(`/api/tickets/${ticket.id}/qr`, { headers: authAdmin });

@@ -4,17 +4,17 @@ import test from 'node:test';
 
 const root = new URL('../', import.meta.url);
 const tracked = [
-  ...await filesUnder('backend/TicketsCombustible.Api'),
-  ...await filesUnder('src'),
-  ...await filesUnder('app-movil/src'),
-  ...await filesUnder('app-movil/public'),
-  '.env.example',
-  'backend/TicketsCombustible.Api/appsettings.json',
-  'backend/TicketsCombustible.Api/appsettings.Development.example.json',
+  ...await filesUnder('BACKEND/API'),
+  ...await filesUnder('APPWEB/src'),
+  ...await filesUnder('APPMOBILE/src'),
+  ...await filesUnder('APPMOBILE/public'),
+  'APPWEB/.env.example',
+  'BACKEND/API/appsettings.json',
+  'BACKEND/API/appsettings.Development.example.json',
 ].filter((path, index, all) => all.indexOf(path) === index);
 
 test('tracked application sources and configuration contain no private PEM key', async () => {
-  const targets = tracked.filter((path) => /^(backend\/TicketsCombustible\.Api\/.*\.(cs|json)|src\/|app-movil\/src\/|app-movil\/public\/|\.env\.example)/.test(path));
+  const targets = tracked.filter((path) => /^(BACKEND\/API\/.*\.(cs|json)|APPWEB\/src\/|APPMOBILE\/src\/|APPMOBILE\/public\/|APPWEB\/\.env\.example)/.test(path));
   for (const path of targets) {
     const content = await readFile(new URL(path, root), 'utf8');
     assert.doesNotMatch(content, /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/, `${path} contains a private key block`);
@@ -34,7 +34,7 @@ test('sample and local application settings do not store operational credential 
 });
 
 test('frontend build configuration exposes public URLs only, never server credentials', async () => {
-  const targets = tracked.filter((path) => /^(\.env\.example|vite\.config\.[^/]+|app-movil\/vite\.config\.js|app-movil\/\.env\.example)$/.test(path));
+  const targets = tracked.filter((path) => /^(\.env\.example|vite\.config\.[^/]+|APPMOBILE\/vite\.config\.js|APPMOBILE\/\.env\.example)$/.test(path));
   const forbidden = /VITE_[A-Z0-9_]*(?:JWT|SIGNING|QR_SECRET|SMTP|PASSWORD|API_KEY|SMS_SECRET|BOOTSTRAP)/i;
   for (const path of targets) {
     const content = await readFile(new URL(path, root), 'utf8');
