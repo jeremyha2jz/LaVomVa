@@ -1,9 +1,27 @@
 // src/services/ticketService.js
 import { usuarioMock, ticketsMock, listaTicketsMock } from './mockData.js';
 
-const USE_MOCK = false;
+const USE_MOCK = true;
 
 const API_URL = "https://tributary-irritate-subtype.ngrok-free.dev/api";
+
+// Lee la respuesta de forma segura: si es JSON la parsea, si no, usa el texto
+// plano como mensaje de error. Sin esto, un 409/400 en texto rompía con
+// "Unexpected token" al intentar res.json() directo.
+async function leerRespuesta(res) {
+  const texto = await res.text();
+  let datos;
+  try {
+    datos = texto ? JSON.parse(texto) : {};
+  } catch {
+    datos = { mensaje: texto || "Error desconocido del servidor" };
+  }
+
+  if (!res.ok) {
+    throw new Error(datos.mensaje || datos.error || `Error ${res.status}`);
+  }
+  return datos;
+}
 
 export async function login(usuario, contrasena) {
   if (USE_MOCK) {
@@ -22,8 +40,7 @@ export async function login(usuario, contrasena) {
     },
     body: JSON.stringify({ usuario, contrasena })
   });
-  if (!res.ok) throw new Error("Usuario o contraseña incorrectos");
-  return res.json();
+  return leerRespuesta(res);
 }
 
 export async function validarTicket(qrData) {
@@ -42,7 +59,7 @@ export async function validarTicket(qrData) {
     },
     body: JSON.stringify({ qrData })
   });
-  return res.json();
+  return leerRespuesta(res);
 }
 
 export async function registrarDespacho(ticketId, galonesServidos, observaciones) {
@@ -61,7 +78,7 @@ export async function registrarDespacho(ticketId, galonesServidos, observaciones
     },
     body: JSON.stringify({ ticketId, galonesServidos, observaciones })
   });
-  return res.json();
+  return leerRespuesta(res);
 }
 
 export async function consultarTickets() {
@@ -76,7 +93,7 @@ export async function consultarTickets() {
       "ngrok-skip-browser-warning": "true"
     }
   });
-  return res.json();
+  return leerRespuesta(res);
 }
 
 function simularRetraso() {

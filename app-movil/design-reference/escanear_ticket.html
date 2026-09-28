@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#007d47"><meta name="color-scheme" content="light"><title>Escanear ticket | LaVomVa</title>
+<!-- Para una PWA 100% offline, aloja Poppins localmente y elimina estos 3 links. -->
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="app.css"></head>
+<body>
+<div class="app">
+<header class="header"><div class="brand">
+  <img class="brand-logo" src="assets/lavomva-marca-blanco.png" alt="" width="260" height="199">
+  <h1 class="brand-title">LaVomVa</h1>
+  <p class="brand-subtitle">Despacho de combustible</p>
+</div></header>
+<main class="main">
+  <div class="content">
+    <h2 class="screen-title">Escanear ticket</h2>
+    <section class="camera" id="cameraBox" aria-label="Visor de cámara para escanear código QR">
+      <video id="cameraVideo" playsinline muted autoplay></video>
+      <div class="camera-shade" aria-hidden="true"></div>
+      <div class="camera-state" id="cameraState" role="status" aria-live="polite">
+        <div class="camera-spinner" aria-hidden="true"></div>
+        <span id="cameraStateText">Iniciando cámara…</span>
+        <button class="camera-retry" id="cameraRetry" type="button">Reintentar</button>
+      </div>
+      <div class="scan-box" aria-hidden="true"><i class="tl"></i><i class="tr"></i><i class="bl"></i><i class="br"></i></div>
+      <button class="flash-btn" id="flashBtn" type="button" aria-label="Activar linterna" disabled><svg viewBox="0 0 20 25" fill="none" aria-hidden="true"><path d="M11.5 1.5H4.4L2.2 13h5.1L6.1 23.5 17.8 9.8h-6.1l-.2-8.3Z" stroke="currentColor" stroke-width="2.3" stroke-linejoin="round"/></svg></button>
+    </section>
+
+    <div class="scan-hint"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"/></svg><span>Apunta al código QR del ticket</span></div>
+
+    <section class="manual-card" aria-labelledby="manualTicketLabel">
+      <div class="manual-eyebrow">¿No funciona la cámara?</div>
+      <div class="manual-label" id="manualTicketLabel">Escribe el ID del ticket</div>
+      <div class="manual-row">
+        <label class="ticket-input-wrap" aria-label="ID del ticket"><svg class="ticket-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M7 7h.01" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/></svg>
+          <input id="ticketId" class="ticket-input" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="COM-2026-000001">
+        </label>
+        <button class="submit-btn" id="submitBtn" type="button" aria-label="Consultar ticket"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h13M13 7l5 5-5 5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      </div>
+    </section>
+  </div>
+  <svg class="watermark" viewBox="0 0 120 120" fill="none" aria-hidden="true">
+  <path d="M25 16h53v88H25z" stroke="currentColor" stroke-width="10" stroke-linejoin="round"/>
+  <rect x="34" y="27" width="35" height="26" rx="3" stroke="currentColor" stroke-width="8"/>
+  <path d="M78 29h9c10 0 17 8 17 18v30c0 8 5 13 11 13 6 0 10-5 10-11V51" stroke="currentColor" stroke-width="9" stroke-linecap="round"/>
+  <path d="M91 32l17 16" stroke="currentColor" stroke-width="9" stroke-linecap="round"/>
+</svg>
+  <div class="bottom-art" aria-hidden="true"><svg viewBox="0 0 430 145" preserveAspectRatio="none">
+  <path class="a1" d="M0 30C88 91 172 121 277 124C325 126 374 116 430 87V145H0Z"/>
+  <path class="a2" d="M0 48C91 106 181 133 286 134C340 135 389 123 430 101V145H0Z"/>
+  <path class="a3" d="M0 62C94 112 179 136 275 145H0Z"/>
+  <path class="a4" d="M264 145C327 136 381 121 430 93V145Z"/>
+  <path class="a5" d="M320 145C365 132 401 119 430 103V145Z"/>
+</svg></div>
+</main>
+<div class="nav-wrap"><nav class="nav" aria-label="Navegación principal"><button type="button" class="nav-item active" aria-current="page"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"/></svg><span>Escanear</span></button><button type="button" class="nav-item" data-route="tickets"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 4h10M7 8h10M7 12h7M6 2.8c.8 0 1.2.9 2 .9s1.2-.9 2-.9 1.2.9 2 .9 1.2-.9 2-.9 1.2.9 2 .9 1.2-.9 2-.9V21c-.8 0-1.2-.9-2-.9s-1.2.9-2 .9-1.2-.9-2-.9-1.2.9-2 .9-1.2-.9-2-.9-1.2.9-2 .9V2.8Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Tickets</span></button><button type="button" class="nav-item" data-route="profile"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="2"/><path d="M4.5 21c.9-4.3 3.5-6.5 7.5-6.5s6.6 2.2 7.5 6.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Perfil</span></button></nav></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+</div>
+<script src="app.js"></script>
+<script>
+(() => {
+  "use strict";
+  const els = {
+    cameraBox: document.getElementById("cameraBox"), video: document.getElementById("cameraVideo"),
+    cameraStateText: document.getElementById("cameraStateText"), cameraRetry: document.getElementById("cameraRetry"),
+    flashBtn: document.getElementById("flashBtn"), ticketId: document.getElementById("ticketId"),
+    submitBtn: document.getElementById("submitBtn")
+  };
+  const state = { stream: null, track: null, torchOn: false, detector: null, scanTimer: null, scanning: false, lastDetected: null, lastDetectedAt: 0 };
+  const app = window.FuelDispatchApp;
+
+  // NOTA: esta vista previa usa BarcodeDetector solo para poder probar la cámara.
+  // En el proyecto real el escaneo lo hace html5-qrcode (funciona también en iPhone).
+  const api = window.FuelTicketScanner = { onTicket: null, startCamera, stopCamera, submitTicket: (v, s = "manual") => emitTicket(v, s) };
+
+  function setCameraMessage(message, isError = false) {
+    els.cameraStateText.textContent = message;
+    els.cameraBox.classList.toggle("has-error", isError);
+    els.cameraBox.classList.remove("is-live");
+  }
+  const secure = () => window.isSecureContext || ["localhost", "127.0.0.1"].includes(location.hostname);
+
+  async function startCamera() {
+    if (state.stream) return true;
+    els.cameraBox.classList.remove("has-error");
+    setCameraMessage("Iniciando cámara…", false);
+    if (!secure()) { setCameraMessage("La cámara requiere HTTPS o localhost.", true); return false; }
+    if (!navigator.mediaDevices?.getUserMedia) { setCameraMessage("Este navegador no permite acceder a la cámara.", true); return false; }
+    try {
+      state.stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } } });
+      els.video.srcObject = state.stream;
+      await els.video.play();
+      state.track = state.stream.getVideoTracks()[0] || null;
+      els.cameraBox.classList.remove("has-error");
+      els.cameraBox.classList.add("is-live");
+      els.flashBtn.disabled = !(state.track?.getCapabilities?.() || {}).torch;
+      startQrDetection();
+      return true;
+    } catch (error) {
+      state.stream = null; state.track = null;
+      const denied = error?.name === "NotAllowedError" || error?.name === "SecurityError";
+      setCameraMessage(denied ? "Permite el acceso a la cámara para escanear el ticket." : "No se pudo abrir la cámara. Puedes escribir el ID manualmente.", true);
+      return false;
+    }
+  }
+
+  function stopCamera() {
+    stopQrDetection();
+    if (state.stream) state.stream.getTracks().forEach(t => t.stop());
+    Object.assign(state, { stream: null, track: null, torchOn: false });
+    els.video.srcObject = null;
+    els.cameraBox.classList.remove("is-live");
+    els.flashBtn.classList.remove("is-on");
+    els.flashBtn.disabled = true;
+  }
+
+  async function toggleTorch() {
+    if (!state.track || els.flashBtn.disabled) { app.showToast("Linterna no disponible en este dispositivo"); return; }
+    try {
+      state.torchOn = !state.torchOn;
+      await state.track.applyConstraints({ advanced: [{ torch: state.torchOn }] });
+      els.flashBtn.classList.toggle("is-on", state.torchOn);
+      els.flashBtn.setAttribute("aria-label", state.torchOn ? "Apagar linterna" : "Activar linterna");
+    } catch {
+      state.torchOn = false;
+      els.flashBtn.classList.remove("is-on");
+      app.showToast("No se pudo controlar la linterna");
+    }
+  }
+
+  async function startQrDetection() {
+    stopQrDetection();
+    if (!("BarcodeDetector" in window)) return;
+    try {
+      const formats = await BarcodeDetector.getSupportedFormats?.();
+      if (formats && !formats.includes("qr_code")) return;
+      state.detector = new BarcodeDetector({ formats: ["qr_code"] });
+    } catch { return; }
+    state.scanning = true;
+    scanFrame();
+  }
+  async function scanFrame() {
+    if (!state.scanning || !state.detector || !state.stream) return;
+    if (els.video.readyState >= 2) {
+      try {
+        const value = (await state.detector.detect(els.video))?.[0]?.rawValue?.trim();
+        if (value) {
+          const now = Date.now();
+          if (!(value === state.lastDetected && now - state.lastDetectedAt < 2500)) {
+            state.lastDetected = value; state.lastDetectedAt = now;
+            emitTicket(value, "qr");
+          }
+        }
+      } catch { /* un frame puede fallar mientras la cámara enfoca */ }
+    }
+    state.scanTimer = setTimeout(scanFrame, 220);
+  }
+  function stopQrDetection() { state.scanning = false; clearTimeout(state.scanTimer); state.scanTimer = null; state.detector = null; }
+
+  function emitTicket(raw, source) {
+    const value = String(raw || "").trim();
+    if (!value) { els.ticketId.focus(); app.showToast("Escribe el ID del ticket"); return; }
+    const detail = { value, source };
+    if (typeof api.onTicket === "function") api.onTicket(detail);
+    document.dispatchEvent(new CustomEvent("fuel:ticket", { detail }));
+    if (typeof api.onTicket !== "function") {
+      // Demo de esta vista previa: un ID con la letra "x" muestra el ticket no válido.
+      stopCamera();
+      location.href = value.toLowerCase().includes("x") ? "ticket_no_valido.html" : "ticket_valido.html";
+    }
+  }
+
+  els.flashBtn.addEventListener("click", toggleTorch);
+  els.cameraRetry.addEventListener("click", startCamera);
+  els.submitBtn.addEventListener("click", () => emitTicket(els.ticketId.value, "manual"));
+  els.ticketId.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); emitTicket(els.ticketId.value, "manual"); } });
+  document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" ? stopCamera() : startCamera());
+  window.addEventListener("pagehide", stopCamera);
+  startCamera();
+})();
+</script>
+</body></html>

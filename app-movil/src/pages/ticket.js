@@ -24,13 +24,20 @@ export function renderTicket(container, resultado) {
       <p><strong>ID:</strong> ${t.id}</p>
       <p><strong>Empleado:</strong> ${t.empleado.nombre}</p>
       <p><strong>Vehículo:</strong> ${t.vehiculo.placa}</p>
+      <p><strong>Departamento:</strong> ${t.departamento}</p>
       <p><strong>Cantidad autorizada:</strong> ${t.cantidadAutorizada} galones</p>
       <p><strong>Combustible:</strong> ${t.tipoCombustible}</p>
+      <p><strong>Vence:</strong> ${t.fechaVencimiento}</p>
       <button id="confirmar-despacho">Registrar despacho</button>
+      <button id="cancelar-ticket">Cancelar</button>
     </div>
   `;
 
   container.querySelector('#confirmar-despacho').addEventListener('click', () => {
     renderDespacho(container, t);
+  });
+
+  container.querySelector('#cancelar-ticket').addEventListener('click', () => {
+    renderEscaner(container);
   });
 }
