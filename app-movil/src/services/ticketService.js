@@ -1,5 +1,6 @@
 // src/services/ticketService.js
-import { ticketsMock, listaTicketsMock } from './mockData.js';
+import { listaTicketsMock } from './mockData.js';
+import { fetchConSesion } from './sessionService.js';
 
 const USE_MOCK = true;
 
@@ -19,28 +20,25 @@ async function leerRespuesta(res) {
   }
 
   if (!res.ok) {
-    throw new Error(datos.mensaje || datos.error || `Error ${res.status}`);
+    throw Object.assign(new Error(datos?.mensajeError || datos?.mensaje || datos?.error || datos?.detail || datos?.title || `Error ${res.status}`), { status: res.status });
   }
   return datos;
 }
 
 export async function validarTicket(qrData) {
-  if (USE_MOCK) {
-    await simularRetraso();
-    const indice = Math.floor(Math.random() * ticketsMock.length);
-    return ticketsMock[indice];
-  }
-
-  const res = await fetch(`${API_URL}/tickets/validar`, {
+  const res = await fetchConSesion(`${API_URL}/tickets/validar`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${localStorage.getItem("token")}`,
-      "ngrok-skip-browser-warning": "true"
+      "Content-Type": "application/json"
     },
     body: JSON.stringify({ qrData })
   });
-  return leerRespuesta(res);
+  const resultado = await leerRespuesta(res);
+  if (typeof resultado?.valido !== 'boolean' || (resultado.valido && !resultado.ticket)) {
+    throw new Error('Respuesta de validación incompleta del servidor');
+  }
+  // Conservar el resultado completo, incluido ticketUuid, sin transformar el QR.
+  return resultado;
 }
 
 export async function registrarDespacho(ticketId, galonesServidos, observaciones) {

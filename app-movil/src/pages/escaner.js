@@ -147,18 +147,38 @@ export function renderEscaner(container) {
     procesando = true;
     btnManual.disabled = true;
     estadoMsg.textContent = "Validando ticket...";
+    let camaraDetenida = false;
     try {
       await detenerCamara();
+      camaraDetenida = true;
       if (saliendo) return;
       visor.classList.add('is-stopped');
       mensajeCamara.textContent = 'Validando ticket...';
       avisarLecturaExitosa();
       const resultado = await validarTicket(qrCodeMessage);
-      if (!saliendo) await salir(() => renderTicket(container, resultado));
+      if (!saliendo && container.contains(pantalla)) await salir(() => renderTicket(container, resultado));
     } catch (err) {
-      if (saliendo) return;
-      estadoMsg.textContent = "Error al validar el ticket";
-      mostrarErrorCamara('Puedes reintentar la cámara o escribir el ID manualmente.');
+      if (saliendo || !container.contains(pantalla)) return;
+      if (!camaraDetenida) {
+        estadoMsg.textContent = 'No se pudo detener la cámara. Intenta nuevamente.';
+        mostrarErrorCamara(err);
+        return;
+      }
+      const contexto = {
+        400: 'Solicitud de validación rechazada (400)',
+        401: 'Sesión inválida o expirada (401)',
+        403: 'Sin permisos para validar tickets (403)',
+        500: 'Error del servidor (500)'
+      };
+      estadoMsg.textContent = err.status
+        ? `${contexto[err.status] || `Error HTTP ${err.status}`}: ${err.message}`
+        : err instanceof TypeError
+          ? 'No se pudo conectar con el servidor. Comprueba la conexión e intenta nuevamente.'
+          : err.message || 'No se pudo validar el ticket. Intenta nuevamente.';
+      visor.classList.remove('has-error', 'is-live');
+      visor.classList.add('is-stopped');
+      mensajeCamara.textContent = 'Validación no completada. Puedes volver a escanear o usar la entrada manual.';
+      btnReintentar.style.display = 'inline-flex';
     } finally {
       procesando = false;
       btnManual.disabled = false;
@@ -169,6 +189,7 @@ export function renderEscaner(container) {
     if (saliendo || procesando || inicioCamara || cierreCamara) return;
     estadoMsg.textContent = "";
     mensajeCamara.textContent = 'Iniciando cámara…';
+    btnReintentar.style.display = '';
     visor.classList.remove('has-error', 'is-live', 'is-stopped');
     btnReintentar.disabled = true;
     btnLinterna.disabled = true;

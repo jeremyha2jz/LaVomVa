@@ -20,7 +20,7 @@ export function renderTicket(container, resultado) {
     <section class="card error-shell">
       <div class="error-badge" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><path d="M24 12v16M24 35h.01" stroke="currentColor" stroke-width="6" stroke-linecap="round"/></svg></div>
       <h1 class="card-title">Ticket no válido</h1>
-      <p class="card-message" id="reason">${escaparTexto(resultado.mensajeError ?? resultado.mensaje ?? resultado.estado ?? "")}</p>
+      <p class="card-message" id="reason">${escaparTexto(resultado.mensajeError || resultado.mensaje || resultado.estado || "El ticket no es válido.")}</p>
       ${idTicket != null && idTicket !== "" ? filaDato("ID del ticket", idTicket, "tag", "error-id") : ""}
       <button class="action action-danger" id="volver" type="button"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"/></svg>Volver a escanear</button>
     </section>
