@@ -41,23 +41,31 @@ export async function validarTicket(qrData) {
   return resultado;
 }
 
-export async function registrarDespacho(ticketId, galonesServidos, observaciones) {
-  if (USE_MOCK) {
-    await simularRetraso();
-    console.log("Despacho simulado:", { ticketId, galonesServidos, observaciones });
-    return { ok: true, mensaje: "Despacho registrado" };
-  }
+export async function obtenerTanquesDespacho(ticket) {
+  const detalle = ticket.tipoCombustibleId != null ? ticket :
+    ticket.ticketUuid ? await leerRespuesta(await fetchConSesion(
+      API_URL + '/tickets/' + encodeURIComponent(ticket.ticketUuid)
+    )) : null;
+  const combustibleId = detalle?.tipoCombustibleId;
+  if (combustibleId == null) throw new Error('No se pudo determinar el combustible del ticket. Vuelve a escanear el QR.');
+  const tanques = await leerRespuesta(await fetchConSesion(API_URL + '/catalogos/tanques'));
+  if (!Array.isArray(tanques)) throw new Error('Respuesta de tanques incompleta del servidor');
+  return tanques.filter(t => t.activo === true &&
+    String(t.tipoCombustibleId) === String(combustibleId) && Number.isSafeInteger(t.id) && t.id > 0);
+}
 
-  const res = await fetch(`${API_URL}/despachos`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${localStorage.getItem("token")}`,
-      "ngrok-skip-browser-warning": "true"
-    },
-    body: JSON.stringify({ ticketId, galonesServidos, observaciones })
+export async function registrarDespacho(ticketId, galonesServidos, observaciones, identidadConfirmada, tanqueId) {
+  if (identidadConfirmada !== true) throw new Error('Confirma que has verificado la identidad.');
+  if (!Number.isFinite(galonesServidos) || galonesServidos <= 0) throw new Error('La cantidad de galones debe ser mayor a 0');
+  const res = await fetchConSesion(API_URL + '/despachos', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ticketId, galonesServidos, identidadConfirmada,
+      observaciones: observaciones?.trim() || null, tanqueId: tanqueId ?? null })
   });
-  return leerRespuesta(res);
+  const resultado = await leerRespuesta(res);
+  if (resultado?.ok !== true) throw new Error(resultado?.mensajeError || resultado?.mensaje || 'El servidor no confirm? el registro del despacho.');
+  return resultado;
 }
 
 export async function consultarTickets() {

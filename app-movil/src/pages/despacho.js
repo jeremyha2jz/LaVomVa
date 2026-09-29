@@ -1,6 +1,6 @@
 import { renderPerfil } from './perfil.js';
 // src/pages/despacho.js
-import { registrarDespacho } from '../services/ticketService.js';
+import { registrarDespacho, obtenerTanquesDespacho } from '../services/ticketService.js';
 import { renderEscaner } from './escaner.js';
 import { renderConsultaTickets } from './consultaTickets.js';
 import logoUrl from '../assets/lavomva-marca-blanco.png';
@@ -27,6 +27,13 @@ export function renderDespacho(container, ticket) {
         <label class="field-label" for="observaciones">Observaciones <span style="font-weight:400">(opcional)</span></label>
         <div class="input-wrap textarea"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 3h9l3 3v15H6zM14 3v4h4M9 12h6M9 16h5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><textarea id="observaciones" placeholder="Escribe una observación..."></textarea></div>
       </div>
+      <div class="field">
+        <label class="field-label" for="tanque">Tanque</label>
+        <select class="input-wrap" id="tanque" required disabled style="width:100%;font:inherit;color:inherit"><option value="">Cargando tanques...</option></select>
+        <p id="tanque-estado" role="status"></p>
+        <button class="action action-secondary" id="reintentar-tanques" type="button" hidden>Reintentar carga de tanques</button>
+      </div>
+      <label class="field-label"><input id="identidad-confirmada" type="checkbox" required> He verificado la identidad</label>
       <div class="stack">
         <button class="action action-primary" id="confirmar-despacho" type="submit"><svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M8 5.5h12v21H8z" fill="currentColor"/><path d="M20 9.5h2.1c2 0 3.4 1.7 3.4 3.7v7.1c0 1.4 1 2.5 2.3 2.5 1.2 0 2.2-1 2.2-2.3v-7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Confirmar despacho</button>
         <button class="action action-secondary" id="cancelar-despacho" type="button"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>Cancelar</button>
@@ -73,10 +80,60 @@ export function renderDespacho(container, ticket) {
   const btnEscaner = container.querySelector('#despacho-ir-escaner');
   const btnTickets = container.querySelector('#despacho-ir-consulta');
   const btnPerfil = container.querySelector('#ir-perfil');
+  const pantalla = container.querySelector('.despacho-page');
+  const selectorTanque = container.querySelector('#tanque');
+  const mensajeTanque = container.querySelector('#tanque-estado');
+  const reintentarTanques = container.querySelector('#reintentar-tanques');
+  const identidad = container.querySelector('#identidad-confirmada');
+  let tanques = [];
+  let cargandoTanques = false;
   const fondoModal = [container.querySelector('.header'), container.querySelector('.main'), container.querySelector('.nav-wrap')];
   let ocupado = false;
   let registrado = false;
   container.querySelector('#ticketId').textContent = ticket.id;
+  container.querySelector('#galones').min = '0.01';
+  container.querySelector('#galones').step = '0.01';
+
+  async function cargarTanques() {
+    if (cargandoTanques || ocupado || registrado) return;
+    cargandoTanques = true;
+    btnConfirmar.disabled = true;
+    selectorTanque.disabled = true;
+    reintentarTanques.hidden = true;
+    mensajeTanque.textContent = 'Cargando tanques compatibles...';
+    try {
+      tanques = await obtenerTanquesDespacho(ticket);
+      if (!container.contains(pantalla)) return;
+      selectorTanque.replaceChildren();
+      const opcion = document.createElement('option');
+      opcion.value = '';
+      opcion.textContent = 'Selecciona un tanque';
+      selectorTanque.append(opcion);
+      tanques.forEach(t => {
+        const elemento = document.createElement('option');
+        elemento.value = String(t.id);
+        elemento.textContent = `${t.nombre || t.codigo || 'Tanque'} (${t.id})`;
+        selectorTanque.append(elemento);
+      });
+      if (tanques.length === 1) selectorTanque.value = String(tanques[0].id);
+      selectorTanque.disabled = tanques.length <= 1;
+      mensajeTanque.textContent = tanques.length === 0
+        ? 'No hay tanques activos compatibles con el combustible del ticket. No se puede registrar el despacho.'
+        : tanques.length === 1 ? 'Tanque compatible seleccionado automáticamente.' : 'Selecciona el tanque del despacho.';
+    } catch (err) {
+      tanques = [];
+      if (!container.contains(pantalla)) return;
+      mensajeTanque.textContent = err.message || 'No se pudieron cargar los tanques.';
+    } finally {
+      cargandoTanques = false;
+      if (container.contains(pantalla)) {
+        btnConfirmar.disabled = !tanques.length;
+        reintentarTanques.hidden = tanques.length > 0;
+      }
+    }
+  }
+  reintentarTanques.addEventListener('click', cargarTanques);
+  void cargarTanques();
 
   // Devuelve una Promise que se resuelve con true/false según el botón que
   // presione el usuario, para poder usar "await" como si fuera confirm() nativo.
@@ -120,17 +177,31 @@ export function renderDespacho(container, ticket) {
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     if (ocupado || registrado) return;
+    if (cargandoTanques || !tanques.length) return;
     estadoMsg.textContent = '';
     estadoMsg.classList.remove('is-success');
     const galones = parseFloat(container.querySelector('#galones').value);
     const observaciones = container.querySelector('#observaciones').value;
+    const tanqueId = Number(selectorTanque.value);
+    if (!identidad.checked) {
+      estadoMsg.textContent = 'Confirma que has verificado la identidad.';
+      return;
+    }
+    if (!tanques.some(t => t.id === tanqueId)) {
+      estadoMsg.textContent = 'Selecciona un tanque compatible.';
+      return;
+    }
 
-    if (isNaN(galones) || galones <= 0) {
+    if (!Number.isFinite(galones) || galones <= 0) {
       estadoMsg.textContent = "La cantidad de galones debe ser mayor a 0";
       return;
     }
     if (galones > ticket.cantidadAutorizada) {
       estadoMsg.textContent = "No puedes servir más de lo autorizado";
+      return;
+    }
+    if (Math.abs(galones * 100 - Math.round(galones * 100)) > 0.000001) {
+      estadoMsg.textContent = 'Usa como máximo dos decimales.';
       return;
     }
 
@@ -140,11 +211,12 @@ export function renderDespacho(container, ticket) {
       const confirmado = await pedirConfirmacion(
         `¿Confirmas registrar ${galones} galones para el ticket ${ticket.id}?`
       );
-      if (!confirmado) return;
+      if (!confirmado || !container.contains(pantalla)) return;
 
       form.setAttribute('aria-busy', 'true');
       [btnCancelar, btnEscaner, btnTickets, btnPerfil].forEach(boton => { boton.disabled = true; });
-      const resultado = await registrarDespacho(ticket.id, galones, observaciones);
+      const resultado = await registrarDespacho(ticket.ticketUuid || ticket.id, galones, observaciones, identidad.checked, tanqueId);
+      if (!container.contains(pantalla)) return;
       registrado = true;
       estadoMsg.textContent = resultado.mensaje;
       estadoMsg.classList.add('is-success');
@@ -164,8 +236,18 @@ export function renderDespacho(container, ticket) {
           <div><dt>Galones servidos</dt><dd id="despacho-exito-galones"></dd></div>
         </dl>
       `;
-      confirmacion.querySelector('#despacho-exito-ticket').textContent = ticket.id;
-      confirmacion.querySelector('#despacho-exito-galones').textContent = `${galones} galones`;
+      const confirmadoServidor = resultado.despacho;
+      confirmacion.querySelector('#despacho-exito-ticket').textContent = confirmadoServidor?.ticketId ?? ticket.id;
+      confirmacion.querySelector('#despacho-exito-galones').textContent = `${confirmadoServidor?.galonesServidos ?? galones} galones`;
+      if (confirmadoServidor?.fechaHora) {
+        const fila = document.createElement('div');
+        const etiqueta = document.createElement('dt');
+        etiqueta.textContent = 'Fecha y hora';
+        const valor = document.createElement('dd');
+        valor.textContent = confirmadoServidor.fechaHora;
+        fila.append(etiqueta, valor);
+        confirmacion.querySelector('.dispatch-success-data').append(fila);
+      }
       const btnVolver = document.createElement('button');
       btnVolver.id = "volver-escaner";
       btnVolver.type = 'button';
@@ -179,7 +261,17 @@ export function renderDespacho(container, ticket) {
         renderEscaner(container);
       });
     } catch (err) {
-      estadoMsg.textContent = err.message || "Error al registrar el despacho";
+      if (!container.contains(pantalla)) return;
+      const contexto = { 400: 'Solicitud rechazada', 401: 'Sesión inválida', 403: 'Sin permisos', 404: 'Recurso no encontrado', 409: 'Conflicto de despacho' };
+      estadoMsg.textContent = err.status
+        ? `${contexto[err.status] || 'Error del servidor'} (${err.status}): ${err.message}`
+        : err.message || 'Error al registrar el despacho';
+      const volver = document.createElement('button');
+      volver.type = 'button';
+      volver.className = 'action action-secondary';
+      volver.textContent = 'Volver a escanear';
+      volver.addEventListener('click', () => { if (!ocupado) renderEscaner(container); });
+      estadoMsg.append(volver);
     } finally {
       ocupado = false;
       btnConfirmar.disabled = registrado;
