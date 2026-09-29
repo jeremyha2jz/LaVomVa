@@ -237,14 +237,20 @@ export function renderDespacho(container, ticket) {
         </dl>
       `;
       const confirmadoServidor = resultado.despacho;
-      confirmacion.querySelector('#despacho-exito-ticket').textContent = confirmadoServidor?.ticketId ?? ticket.id;
+      confirmacion.querySelector('#despacho-exito-ticket').textContent = ticket.id;
       confirmacion.querySelector('#despacho-exito-galones').textContent = `${confirmadoServidor?.galonesServidos ?? galones} galones`;
       if (confirmadoServidor?.fechaHora) {
         const fila = document.createElement('div');
         const etiqueta = document.createElement('dt');
         etiqueta.textContent = 'Fecha y hora';
         const valor = document.createElement('dd');
-        valor.textContent = confirmadoServidor.fechaHora;
+        const fecha = new Date(confirmadoServidor.fechaHora);
+        valor.textContent = Number.isNaN(fecha.getTime())
+          ? 'Fecha no disponible'
+          : new Intl.DateTimeFormat('es', {
+            day: '2-digit', month: '2-digit', year: 'numeric',
+            hour: '2-digit', minute: '2-digit', hour12: true
+          }).format(fecha);
         fila.append(etiqueta, valor);
         confirmacion.querySelector('.dispatch-success-data').append(fila);
       }
