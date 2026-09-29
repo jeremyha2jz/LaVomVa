@@ -1,34 +1,54 @@
-const CACHE_NAME = "despacho-cache-v2";
+const CACHE_NAME = "despacho-static-v2";
 const ARCHIVOS_CACHE = ["/", "/index.html"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ARCHIVOS_CACHE))
+    caches.open(CACHE_NAME)
+      .then((cache) => cache.addAll(ARCHIVOS_CACHE))
+      .then(() => self.skipWaiting())
   );
-  self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((names) => Promise.all(names.filter((name) => name !== CACHE_NAME).map((name) => caches.delete(name))))
+    caches.keys()
+      .then((keys) => Promise.all(keys
+        .filter((key) => (key.startsWith("despacho-static-") || key === "despacho-cache-v1") && key !== CACHE_NAME)
+        .map((key) => caches.delete(key))))
+      .then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
 self.addEventListener("fetch", (event) => {
   const request = event.request;
-  const requestUrl = new URL(request.url);
+  const url = new URL(request.url);
+  const esApi = url.pathname === "/api" || url.pathname.startsWith("/api/");
+  const esRecursoEstatico = request.mode === "navigate" || /\.(?:html|css|js|mjs|json|webmanifest|svg|png|jpe?g|webp|ico|woff2?)$/i.test(url.pathname);
 
-  // API data, credentials, and any non-GET request must always go to the network.
-  // The PWA is served from the same origin as /api through Vite or the production proxy.
-  if (request.method !== "GET" || requestUrl.origin !== self.location.origin || requestUrl.pathname === "/api" || requestUrl.pathname.startsWith("/api/")) {
+  if (request.method !== "GET" || url.origin !== self.location.origin || esApi ||
+      request.headers?.has("authorization") || request.cache === "no-store" || !esRecursoEstatico) {
     event.respondWith(fetch(request));
     return;
   }
 
   event.respondWith(
-    caches.match(request).then((respuestaCacheada) => {
-      return respuestaCacheada || fetch(request);
+    fetch(request).then((respuesta) => {
+      const cacheControl = respuesta.headers.get("cache-control") || "";
+      if (respuesta.ok && respuesta.type === "basic" &&
+          !/(?:no-store|private)/i.test(cacheControl) &&
+          !request.headers?.has("authorization")) {
+        const copia = respuesta.clone();
+          event.waitUntil(
+            caches.open(CACHE_NAME)
+              .then((cache) => cache.put(request, copia))
+              .catch(() => {})
+          );
+      }
+      return respuesta;
+    }).catch(async () => {
+      const respuestaCacheada = await caches.match(request);
+      if (respuestaCacheada) return respuestaCacheada;
+      throw new Error("Recurso estático no disponible sin conexión");
     })
   );
 });

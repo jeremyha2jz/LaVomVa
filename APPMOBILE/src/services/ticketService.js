@@ -1,153 +1,96 @@
 // src/services/ticketService.js
-import { usuarioMock, ticketsMock, listaTicketsMock } from './mockData.js';
+import { fetchConSesion } from './sessionService.js';
 
-const USE_MOCK = false;
 
-// La PWA y la API se publican juntas mediante el proxy de Vite.
-const API_URL = "/api";
-let refreshInFlight = null;
 
-export async function login(usuario, contrasena) {
-  if (USE_MOCK) {
-    await simularRetraso();
-    if (usuario === usuarioMock.usuario && contrasena === usuarioMock.contrasena) {
-      return { token: usuarioMock.token, nombre: usuarioMock.nombre, rol: usuarioMock.rol };
-    }
-    throw new Error("Usuario o contraseña incorrectos");
+import { API_URL } from './apiConfig.js';
+export { login } from './sessionService.js';
+
+// Lee la respuesta de forma segura: si es JSON la parsea, si no, usa el texto
+// plano como mensaje de error. Sin esto, un 409/400 en texto rompía con
+// "Unexpected token" al intentar res.json() directo.
+async function leerRespuesta(res) {
+  const texto = await res.text();
+  let datos;
+  try {
+    datos = texto ? JSON.parse(texto) : {};
+  } catch {
+    datos = { mensaje: texto || "Error desconocido del servidor" };
   }
 
-  const res = await fetch(`${API_URL}/login`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "ngrok-skip-browser-warning": "true"
-    },
-    body: JSON.stringify({ usuario, contrasena })
-  });
-  return leerRespuesta(res);
-}
-
-export async function logout() {
-  const refreshToken = localStorage.getItem("refreshToken");
-  clearMobileSession();
-  if (!refreshToken) return;
-  try {
-    await fetch(`${API_URL}/login/logout`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refreshToken }) });
-  } catch { /* El cierre local se completa aunque la API no responda. */ }
-}
-
-function clearMobileSession() {
-  for (const key of ["token", "refreshToken", "expiresAt", "nombre", "rol"]) localStorage.removeItem(key);
-}
-
-async function authorizedFetch(url, options = {}) {
-  const send = () => {
-    const token = localStorage.getItem("token");
-    const headers = new Headers(options.headers ?? {});
-    if (token) headers.set("Authorization", `Bearer ${token}`);
-    return fetch(url, { ...options, headers });
-  };
-  const response = await send();
-  if (response.status !== 401 || !localStorage.getItem("refreshToken") || url === `${API_URL}/login/refresh`) return response;
-  try {
-    const session = await refreshMobileSession();
-    if (!session) throw new Error("La sesión expiró. Inicia sesión nuevamente.");
-    return await send();
-  } catch (error) {
-    clearMobileSession();
-    if (typeof window !== "undefined") window.dispatchEvent(new Event("lavomva-session-expired"));
-    throw error instanceof Error ? error : new Error("La sesión expiró. Inicia sesión nuevamente.");
+  if (!res.ok) {
+    throw Object.assign(new Error(datos?.mensajeError || datos?.mensaje || datos?.error || datos?.detail || datos?.title || `Error ${res.status}`), { status: res.status });
   }
-}
-
-function refreshMobileSession() {
-  if (refreshInFlight) return refreshInFlight;
-  refreshInFlight = (async () => {
-    const response = await fetch(`${API_URL}/login/refresh`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refreshToken: localStorage.getItem("refreshToken") }),
-    });
-    if (!response.ok) return null;
-    const session = await response.json();
-    localStorage.setItem("token", session.token);
-    localStorage.setItem("refreshToken", session.refreshToken);
-    localStorage.setItem("expiresAt", session.expiresAt);
-    return session;
-  })().finally(() => { refreshInFlight = null; });
-  return refreshInFlight;
+  return datos;
 }
 
 export async function validarTicket(qrData) {
-  if (USE_MOCK) {
-    await simularRetraso();
-    const indice = Math.floor(Math.random() * ticketsMock.length);
-    return ticketsMock[indice];
-  }
-
-  const res = await authorizedFetch(`${API_URL}/tickets/validar`, {
+  const res = await fetchConSesion(`${API_URL}/tickets/validar`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${localStorage.getItem("token")}`,
-      "ngrok-skip-browser-warning": "true"
+      "Content-Type": "application/json"
     },
     body: JSON.stringify({ qrData })
   });
-  return leerRespuesta(res);
+  const resultado = await leerRespuesta(res);
+  if (typeof resultado?.valido !== 'boolean' || (resultado.valido && !resultado.ticket)) {
+    throw new Error('Respuesta de validación incompleta del servidor');
+  }
+  // Conservar el resultado completo, incluido ticketUuid, sin transformar el QR.
+  return resultado;
 }
 
-export async function registrarDespacho(ticketId, galonesServidos, observaciones, identidadConfirmada) {
-  if (USE_MOCK) {
-    await simularRetraso();
-    console.log("Despacho simulado:", { ticketId, galonesServidos, observaciones });
-    return { ok: true, mensaje: "Despacho registrado" };
-  }
+export async function obtenerTanquesDespacho(ticket) {
+  const detalle = ticket.tipoCombustibleId != null ? ticket :
+    ticket.ticketUuid ? await leerRespuesta(await fetchConSesion(
+      API_URL + '/tickets/' + encodeURIComponent(ticket.ticketUuid)
+    )) : null;
+  const combustibleId = detalle?.tipoCombustibleId;
+  if (combustibleId == null) throw new Error('No se pudo determinar el combustible del ticket. Vuelve a escanear el QR.');
+  const tanques = await leerRespuesta(await fetchConSesion(API_URL + '/catalogos/tanques'));
+  if (!Array.isArray(tanques)) throw new Error('Respuesta de tanques incompleta del servidor');
+  return tanques.filter(t => t.activo === true &&
+    String(t.tipoCombustibleId) === String(combustibleId) && Number.isSafeInteger(t.id) && t.id > 0);
+}
 
-  const res = await authorizedFetch(`${API_URL}/despachos`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${localStorage.getItem("token")}`,
-      "ngrok-skip-browser-warning": "true"
-    },
-    body: JSON.stringify({ ticketId, galonesServidos, observaciones, identidadConfirmada })
+export async function registrarDespacho(ticketId, galonesServidos, observaciones, identidadConfirmada, tanqueId) {
+  if (identidadConfirmada !== true) throw new Error('Confirma que has verificado la identidad.');
+  if (!Number.isFinite(galonesServidos) || galonesServidos <= 0) throw new Error('La cantidad de galones debe ser mayor a 0');
+  const res = await fetchConSesion(API_URL + '/despachos', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ticketId, galonesServidos, identidadConfirmada,
+      observaciones: observaciones?.trim() || null, tanqueId: tanqueId ?? null })
   });
-  return leerRespuesta(res);
+  const resultado = await leerRespuesta(res);
+  if (resultado?.ok !== true) throw new Error(resultado?.mensajeError || resultado?.mensaje || 'El servidor no confirm? el registro del despacho.');
+  return resultado;
 }
 
 export async function consultarTickets() {
-  if (USE_MOCK) {
-    await simularRetraso();
-    return listaTicketsMock;
-  }
-
-  const res = await authorizedFetch(`${API_URL}/tickets`, {
-    headers: {
-      "Authorization": `Bearer ${localStorage.getItem("token")}`,
-      "ngrok-skip-browser-warning": "true"
-    }
-  });
+  const res = await fetchConSesion(API_URL + '/tickets');
   const tickets = await leerRespuesta(res);
-  return tickets.map(ticket => ({
-    ...ticket,
-    id: ticket.numeroSecuencial ?? ticket.id,
-    uuid: ticket.id,
-    cantidadAutorizada: ticket.cantidadAutorizadaGalones ?? ticket.cantidadAutorizada,
-  }));
+  if (!Array.isArray(tickets)) throw new Error('Respuesta de tickets incompleta del servidor');
+  return tickets;
 }
 
-async function leerRespuesta(res) {
-  const raw = await res.text();
-  let body;
-  try { body = raw ? JSON.parse(raw) : null; }
-  catch { body = raw; }
-  if (!res.ok) {
-    const message = typeof body === "string" ? body : body?.mensaje ?? body?.title ?? body?.error;
-    throw new Error(message || `Error HTTP ${res.status}`);
+export async function consultarDetalleTicket(id) {
+  if (!id) throw new Error('El ticket no tiene un identificador disponible.');
+  const res = await fetchConSesion(API_URL + '/tickets/' + encodeURIComponent(id));
+  const ticket = await leerRespuesta(res);
+  if (!ticket || typeof ticket !== 'object' || Array.isArray(ticket) || !ticket.id) {
+    throw new Error('Respuesta de detalle incompleta del servidor');
   }
-  return body;
+  return ticket;
 }
 
-function simularRetraso() {
-  return new Promise(resolve => setTimeout(resolve, 300));
+export async function consultarDespachoTicket(id) {
+  if (!id) throw new Error('El ticket no tiene un identificador disponible.');
+  const res = await fetchConSesion(API_URL + '/tickets/' + encodeURIComponent(id) + '/despacho');
+  if (res.status === 404) return null;
+  const despacho = await leerRespuesta(res);
+  if (!despacho || typeof despacho !== 'object' || Array.isArray(despacho) || !despacho.id) {
+    throw new Error('Respuesta de despacho incompleta del servidor');
+  }
+  return despacho;
 }
