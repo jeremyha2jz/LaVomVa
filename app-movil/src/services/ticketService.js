@@ -1,9 +1,10 @@
 // src/services/ticketService.js
-import { usuarioMock, ticketsMock, listaTicketsMock } from './mockData.js';
+import { ticketsMock, listaTicketsMock } from './mockData.js';
 
 const USE_MOCK = true;
 
-const API_URL = "https://tributary-irritate-subtype.ngrok-free.dev/api";
+import { API_URL } from './apiConfig.js';
+export { login } from './sessionService.js';
 
 // Lee la respuesta de forma segura: si es JSON la parsea, si no, usa el texto
 // plano como mensaje de error. Sin esto, un 409/400 en texto rompía con
@@ -21,26 +22,6 @@ async function leerRespuesta(res) {
     throw new Error(datos.mensaje || datos.error || `Error ${res.status}`);
   }
   return datos;
-}
-
-export async function login(usuario, contrasena) {
-  if (USE_MOCK) {
-    await simularRetraso();
-    if (usuario === usuarioMock.usuario && contrasena === usuarioMock.contrasena) {
-      return { token: usuarioMock.token, nombre: usuarioMock.nombre, rol: usuarioMock.rol };
-    }
-    throw new Error("Usuario o contraseña incorrectos");
-  }
-
-  const res = await fetch(`${API_URL}/login`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "ngrok-skip-browser-warning": "true"
-    },
-    body: JSON.stringify({ usuario, contrasena })
-  });
-  return leerRespuesta(res);
 }
 
 export async function validarTicket(qrData) {

@@ -62,21 +62,21 @@ export function renderLogin(container, onLoginExitoso) {
   });
   form.addEventListener('submit', async (e) => {
     e.preventDefault(); // evita que el form recargue la página, comportamiento por defecto del HTML
+    const boton = container.querySelector('#loginButton');
+    if (boton.disabled) return;
+    boton.disabled = true;
     errorMsg.textContent = "";
 
     const usuario = container.querySelector('#usuario').value;
     const contrasena = container.querySelector('#contrasena').value;
 
     try {
-      const resultado = await login(usuario, contrasena);
-      // Guardamos el token y datos del usuario para usarlos en el resto de la app
-      localStorage.setItem('token', resultado.token);
-      localStorage.setItem('nombre', resultado.nombre);
-      localStorage.setItem('rol', resultado.rol);
-
+      await login(usuario, contrasena);
       onLoginExitoso(); // avisa al que llamó esta función que ya puede navegar a la siguiente pantalla
     } catch (err) {
       errorMsg.textContent = err.message;
+    } finally {
+      boton.disabled = false;
     }
   });
 }

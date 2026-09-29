@@ -2,17 +2,22 @@
 import './style.css';
 import { renderLogin } from './pages/login.js';
 import { renderEscaner } from './pages/escaner.js';
+import { asegurarSesion, obtenerSesion, logout, SESSION_KEY } from './services/sessionService.js';
 
 const app = document.querySelector('#app');
 
-// Si ya hay un token guardado, saltamos el login e iniciamos directo en el escáner
-if (localStorage.getItem('token')) {
-  renderEscaner(app);
-} else {
+function mostrarLogin() {
+  clearTimeout(temporizadorInactividad);
   renderLogin(app, () => {
+    reiniciarTemporizador();
     renderEscaner(app);
   });
 }
+window.addEventListener('lavomva:sesion-cerrada', mostrarLogin);
+window.addEventListener('storage', (evento) => {
+  if (evento.key === SESSION_KEY && !evento.newValue) mostrarLogin();
+});
+
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js');
 }
@@ -53,15 +58,12 @@ const TIEMPO_INACTIVIDAD = 15 * 60 * 1000; // 15 minutos en milisegundos
 let temporizadorInactividad;
 
 function cerrarSesionPorInactividad() {
-  if (!localStorage.getItem('token')) return; // nada que cerrar si no hay sesión
-  localStorage.clear();
-  renderLogin(app, () => {
-    renderEscaner(app);
-  });
+  if (obtenerSesion()) void logout();
 }
 
 function reiniciarTemporizador() {
   clearTimeout(temporizadorInactividad);
+  if (!obtenerSesion()) return;
   temporizadorInactividad = setTimeout(cerrarSesionPorInactividad, TIEMPO_INACTIVIDAD);
 }
 
@@ -69,4 +71,18 @@ function reiniciarTemporizador() {
   document.addEventListener(evento, reiniciarTemporizador);
 });
 
-reiniciarTemporizador(); // arranca el temporizador apenas carga la app
+// La expiración del JWT se comprueba independientemente de la actividad.
+async function iniciarSesion() {
+  const sesion = await asegurarSesion();
+  if (sesion) {
+    reiniciarTemporizador();
+    renderEscaner(app);
+  } else mostrarLogin();
+}
+void iniciarSesion();
+setInterval(() => {
+  if (obtenerSesion()) void asegurarSesion();
+}, 30_000);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && obtenerSesion()) void asegurarSesion();
+});

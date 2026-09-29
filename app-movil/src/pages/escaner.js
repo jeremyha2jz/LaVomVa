@@ -4,7 +4,7 @@ import { Html5Qrcode } from 'html5-qrcode';
 import { validarTicket } from '../services/ticketService.js';
 import { renderTicket } from './ticket.js';
 import { renderConsultaTickets } from './consultaTickets.js';
-import { renderLogin } from './login.js';
+import { logout } from '../services/sessionService.js';
 import logoUrl from '../assets/lavomva-marca-blanco.png';
 
 export function renderEscaner(container) {
@@ -266,11 +266,6 @@ export function renderEscaner(container) {
   });
 
   container.querySelector('#cerrar-sesion').addEventListener('click', () => {
-    void salir(() => {
-      localStorage.clear();
-      renderLogin(container, () => {
-        renderEscaner(container);
-      });
-    });
+    void salir(() => { void logout(); });
   });
 }

@@ -1,6 +1,6 @@
 import { renderEscaner } from './escaner.js';
 import { renderConsultaTickets } from './consultaTickets.js';
-import { renderLogin } from './login.js';
+import { obtenerSesion, logout } from '../services/sessionService.js';
 import logoUrl from '../assets/lavomva-marca-blanco.png';
 
 export function renderPerfil(container) {
@@ -51,8 +51,8 @@ export function renderPerfil(container) {
 </div>
 </div>`;
 
-  container.querySelector('#profileUser').textContent = localStorage.getItem('nombre') || '';
-  container.querySelector('#profileRoleValue').textContent = localStorage.getItem('rol') || 'Despachador';
+  container.querySelector('#profileUser').textContent = obtenerSesion()?.nombre || '';
+  container.querySelector('#profileRoleValue').textContent = (obtenerSesion()?.rol === 'DESPACHADOR' ? 'Despachador' : obtenerSesion()?.rol) || '';
   container.querySelector('#perfil-ir-escaner').addEventListener('click', () => {
     renderEscaner(container);
   });
@@ -86,10 +86,8 @@ export function renderPerfil(container) {
       (document.activeElement === btnConfirmar ? btnCancelar : btnConfirmar).focus();
     }
   });
-  btnConfirmar.addEventListener('click', () => {
-    localStorage.clear();
-    renderLogin(container, () => {
-      renderEscaner(container);
-    });
+  btnConfirmar.addEventListener('click', async () => {
+    btnConfirmar.disabled = true;
+    await logout();
   });
 }
