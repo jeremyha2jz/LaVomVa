@@ -8,6 +8,8 @@ const app = document.querySelector('#app');
 
 function mostrarLogin() {
   clearTimeout(temporizadorInactividad);
+  clearTimeout(temporizadorAviso);
+  avisoInactividad.hidden = true;
   renderLogin(app, () => {
     reiniciarTemporizador();
     renderEscaner(app);
@@ -15,7 +17,7 @@ function mostrarLogin() {
 }
 window.addEventListener('lavomva:sesion-cerrada', mostrarLogin);
 window.addEventListener('storage', (evento) => {
-  if (evento.key === SESSION_KEY && !evento.newValue) mostrarLogin();
+  if (evento.storageArea === sessionStorage && evento.key === SESSION_KEY && !evento.newValue) mostrarLogin();
 });
 
 if ('serviceWorker' in navigator) {
@@ -52,37 +54,59 @@ window.addEventListener('offline', () => mostrarAviso(true));
 verificarConexionReal();
 setInterval(verificarConexionReal, 5000);
 
-// Cierre de sesión automático por inactividad: si pasan 15 minutos sin
-// clics, teclas ni toques en pantalla, se cierra la sesión sola.
-const TIEMPO_INACTIVIDAD = 15 * 60 * 1000; // 15 minutos en milisegundos
+const TIEMPO_AVISO = 4 * 60 * 1000;
+const TIEMPO_INACTIVIDAD = 5 * 60 * 1000;
+const ACTIVIDAD_KEY = 'lavomva.ultima-actividad';
 let temporizadorInactividad;
+let temporizadorAviso;
+const avisoInactividad = document.createElement('div');
+avisoInactividad.setAttribute('role', 'status');
+avisoInactividad.setAttribute('aria-live', 'polite');
+avisoInactividad.textContent = 'Se está detectando inactividad. La sesión se cerrará pronto.';
+avisoInactividad.hidden = true;
+avisoInactividad.style.cssText = 'position:fixed;z-index:100;top:16px;left:50%;transform:translateX(-50%);width:max-content;max-width:calc(100% - 32px);box-sizing:border-box;padding:12px 16px;border-radius:14px;background:#fff8e1;color:#493b13;box-shadow:0 4px 20px #0002;font:14px/1.4 Poppins,system-ui,sans-serif;pointer-events:none';
+document.body.append(avisoInactividad);
 
-function cerrarSesionPorInactividad() {
-  if (obtenerSesion()) void logout();
+function comprobarInactividad() {
+  clearTimeout(temporizadorInactividad);
+  clearTimeout(temporizadorAviso);
+  if (!obtenerSesion()) { avisoInactividad.hidden = true; return false; }
+  const ultima = Number(sessionStorage.getItem(ACTIVIDAD_KEY));
+  const transcurrido = ultima ? Date.now() - ultima : 0;
+  if (transcurrido >= TIEMPO_INACTIVIDAD) {
+    void logout({ inmediato: true });
+    return false;
+  }
+  avisoInactividad.hidden = transcurrido < TIEMPO_AVISO;
+  if (transcurrido < TIEMPO_AVISO) temporizadorAviso = setTimeout(comprobarInactividad, TIEMPO_AVISO - transcurrido);
+  temporizadorInactividad = setTimeout(comprobarInactividad, TIEMPO_INACTIVIDAD - transcurrido);
+  return true;
 }
 
 function reiniciarTemporizador() {
-  clearTimeout(temporizadorInactividad);
-  if (!obtenerSesion()) return;
-  temporizadorInactividad = setTimeout(cerrarSesionPorInactividad, TIEMPO_INACTIVIDAD);
+  if (!comprobarInactividad()) return;
+  sessionStorage.setItem(ACTIVIDAD_KEY, String(Date.now()));
+  comprobarInactividad();
 }
 
-['click', 'keydown', 'touchstart'].forEach((evento) => {
-  document.addEventListener(evento, reiniciarTemporizador);
+['click', 'pointerdown', 'touchstart', 'keydown', 'input', 'change'].forEach(evento => {
+  document.addEventListener(evento, reiniciarTemporizador, { capture: true, passive: true });
 });
+// Una navegación real (incluido el resultado de un escaneo) reemplaza la página.
+// No observar vídeo, contadores ni cambios internos de los formularios.
+new MutationObserver(reiniciarTemporizador).observe(app, { childList: true });
 
-// La expiración del JWT se comprueba independientemente de la actividad.
 async function iniciarSesion() {
   const sesion = await asegurarSesion();
   if (sesion) {
-    reiniciarTemporizador();
-    renderEscaner(app);
+    if (!sessionStorage.getItem(ACTIVIDAD_KEY)) sessionStorage.setItem(ACTIVIDAD_KEY, String(Date.now()));
+    if (comprobarInactividad()) renderEscaner(app);
   } else mostrarLogin();
 }
 void iniciarSesion();
 setInterval(() => {
-  if (obtenerSesion()) void asegurarSesion();
+  if (comprobarInactividad()) void asegurarSesion();
 }, 30_000);
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && obtenerSesion()) void asegurarSesion();
+  if (!document.hidden && comprobarInactividad()) void asegurarSesion();
 });

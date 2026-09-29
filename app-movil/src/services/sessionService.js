@@ -1,11 +1,15 @@
 import { API_URL } from './apiConfig.js';
 export const SESSION_KEY = 'lavomva.session';
+// No reutilizar credenciales persistidas por versiones anteriores.
+[SESSION_KEY, 'token', 'refreshToken', 'expiresAt', 'id', 'nombre', 'rol'].forEach(key => localStorage.removeItem(key));
 let renovacion;
 let cierre;
 export function obtenerSesion() {
-  try { return JSON.parse(localStorage.getItem(SESSION_KEY)); } catch { return null; }
+  try { return JSON.parse(sessionStorage.getItem(SESSION_KEY)); } catch { return null; }
 }
 export function eliminarSesion() {
+  sessionStorage.removeItem(SESSION_KEY);
+  sessionStorage.removeItem('lavomva.ultima-actividad');
   localStorage.removeItem(SESSION_KEY);
   // Claves de sesión de las versiones anteriores de LaVomVa.
   ['token', 'refreshToken', 'expiresAt', 'id', 'nombre', 'rol'].forEach(key => localStorage.removeItem(key));
@@ -53,7 +57,7 @@ export async function login(usuario, contrasena) {
       throw Object.assign(new Error('Usuario sin permisos para acceder.'), { status: 403 });
     }
     const { token, refreshToken, expiresAt, id, nombre, rol } = datos;
-    localStorage.setItem(SESSION_KEY, JSON.stringify({ token, refreshToken, expiresAt, id, nombre, rol }));
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ token, refreshToken, expiresAt, id, nombre, rol }));
     return obtenerSesion();
   });
 }
@@ -74,7 +78,7 @@ export async function asegurarSesion(tokenRechazado) {
       if (!tokensValidos(datos)) throw new Error('Respuesta de renovación inválida');
       if (obtenerSesion()?.refreshToken !== actual.refreshToken) return null;
       const nueva = { ...actual, token: datos.token, refreshToken: datos.refreshToken, expiresAt: datos.expiresAt };
-      localStorage.setItem(SESSION_KEY, JSON.stringify(nueva));
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify(nueva));
       return nueva;
     } catch {
       eliminarSesion();
@@ -102,16 +106,18 @@ export async function fetchConSesion(url, opciones = {}) {
   // Un 403 no renueva ni elimina la sesión.
   return res;
 }
-export async function logout() {
+export async function logout({ inmediato = false } = {}) {
   if (cierre) return cierre;
+  const tokenAlCerrar = inmediato ? obtenerSesion()?.refreshToken : null;
+  if (inmediato) eliminarSesion();
   cierre = (async () => {
     if (renovacion) await renovacion;
     await conBloqueo(async () => {
       try {
-        const refreshToken = obtenerSesion()?.refreshToken;
+        const refreshToken = inmediato ? tokenAlCerrar : obtenerSesion()?.refreshToken;
         if (refreshToken) await post('/logout', { refreshToken });
       } catch { /* El cierre local también funciona sin conexión. */ }
-      finally { eliminarSesion(); }
+      finally { if (!inmediato) eliminarSesion(); }
     });
   })();
   try { await cierre; } finally { cierre = undefined; }
