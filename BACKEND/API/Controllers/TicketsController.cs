@@ -41,6 +41,36 @@ public class TicketsController(TicketsCombustibleDbContext db, IConfiguration co
         return ticket is null ? NotFound(new ApiErrorResponse("Ticket no encontrado.")) : Ok(new { ticket.Id, ticket.NumeroSecuencial, Estado = lifecycle.EstadoActual(ticket), ticket.EmpleadoId, ticket.VehiculoId, ticket.DepartamentoId, ticket.TipoCombustibleId, ticket.CantidadAutorizadaGalones, ticket.FechaCreacion, ticket.FechaVencimiento, ticket.AnuladoEn, ticket.MotivoAnulacion });
     }
 
+    [HttpGet("{id:guid}/despacho")]
+    public async Task<IActionResult> ObtenerDespacho(Guid id)
+    {
+        if (!await db.Tickets.AsNoTracking().AnyAsync(x => x.Id == id))
+            return NotFound(new ApiErrorResponse("Ticket no encontrado."));
+
+        var despacho = await (
+            from registro in db.Despachos.AsNoTracking()
+            join operador in db.Usuarios on registro.OperadorId equals operador.Id
+            join tanque in db.Tanques on registro.TanqueId equals tanque.Id
+            join estacion in db.Estaciones on registro.EstacionId equals estacion.Id
+            where registro.TicketId == id
+            select new
+            {
+                registro.Id,
+                registro.TicketId,
+                registro.GalonesServidos,
+                registro.Observaciones,
+                registro.FechaHora,
+                registro.IdentidadConfirmada,
+                Operador = new { operador.Id, Nombre = operador.NombreCompleto },
+                Tanque = new { tanque.Id, tanque.Codigo, tanque.Nombre },
+                Estacion = new { estacion.Id, estacion.Nombre }
+            }).SingleOrDefaultAsync();
+
+        return despacho is null
+            ? NotFound(new ApiErrorResponse("El ticket todavía no tiene un despacho registrado."))
+            : Ok(despacho);
+    }
+
     [HttpPost("{id:guid}/anular")]
     [Authorize(Roles = "ADMINISTRADOR,SUPERVISOR")]
     public async Task<IActionResult> Anular(Guid id, AnularTicketRequest request)
