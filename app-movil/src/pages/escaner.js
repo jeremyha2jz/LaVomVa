@@ -34,10 +34,10 @@ export function renderEscaner(container) {
 
     <section class="manual-card" aria-labelledby="manualTicketLabel">
       <div class="manual-eyebrow">¿No funciona la cámara?</div>
-      <div class="manual-label" id="manualTicketLabel">Escribe el ID del ticket</div>
+      <div class="manual-label" id="manualTicketLabel">Ingresar token QR manualmente</div>
       <div class="manual-row">
-        <label class="ticket-input-wrap" aria-label="ID del ticket"><svg class="ticket-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M7 7h.01" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/></svg>
-          <input id="ticket-manual" class="ticket-input" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="COM-2026-000001">
+        <label class="ticket-input-wrap" aria-label="Token QR"><svg class="ticket-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M7 7h.01" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/></svg>
+          <input id="ticket-manual" class="ticket-input" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Pega aquí el token del QR">
         </label>
         <button class="submit-btn" id="validar-manual" type="button" aria-label="Consultar ticket"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h13M13 7l5 5-5 5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       </div>
@@ -259,8 +259,8 @@ export function renderEscaner(container) {
     visor.classList.add('has-error');
     const detalle = String(err?.message || err);
     mensajeCamara.textContent = /NotAllowed|Permission|denied|Security/i.test(detalle)
-      ? 'Permite el acceso a la cámara para escanear el ticket. También puedes escribir el ID manualmente.'
-      : 'No se pudo abrir la cámara. Puedes escribir el ID manualmente.';
+      ? 'Permite el acceso a la cámara para escanear el ticket. También puedes pegar el token QR manualmente.'
+      : 'No se pudo abrir la cámara. Puedes pegar el token QR manualmente.';
     mensajeCamara.title = detalle;
   }
 
@@ -272,7 +272,7 @@ export function renderEscaner(container) {
   container.querySelector('#validar-manual').addEventListener('click', () => {
     const idManual = container.querySelector('#ticket-manual').value.trim();
     if (!idManual) {
-      estadoMsg.textContent = "Escribe un ID de ticket antes de validar";
+      estadoMsg.textContent = "Pega el token QR antes de validar";
       return;
     }
     void procesarResultado(idManual);
