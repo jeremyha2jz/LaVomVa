@@ -87,7 +87,7 @@ export async function asegurarSesion(tokenRechazado) {
   });
   try { return await renovacion; } finally { renovacion = undefined; }
 }
-// Disponible para futuras peticiones protegidas; tickets sigue usando mocks.
+// Peticiones protegidas con renovación de sesión ante un 401.
 export async function fetchConSesion(url, opciones = {}) {
   const sesion = await asegurarSesion();
   if (!sesion) throw Object.assign(new Error('Sesión inválida o expirada'), { status: 401 });

@@ -1,6 +1,7 @@
 import { renderPerfil } from './perfil.js';
+import { registrarPantalla, volverEnHistorial } from '../navigation.js';
 // src/pages/consultaTickets.js
-import { consultarTickets, consultarDetalleTicket } from '../services/ticketService.js';
+import { consultarTickets, consultarDetalleTicket, consultarDespachoTicket } from '../services/ticketService.js';
 import { renderEscaner } from './escaner.js';
 import logoUrl from '../assets/lavomva-marca-blanco.png';
 
@@ -65,6 +66,19 @@ export function renderConsultaTickets(container) {
   let solicitudDetalle = 0;
   let tarjetaOrigen;
   let posicionLista = 0;
+  function mostrarLista() {
+    if (!listado.isConnected) { renderConsultaTickets(container); return; }
+    solicitudDetalle++;
+    detalle.hidden = true;
+    listado.hidden = false;
+    tarjetaOrigen?.focus({ preventScroll: true });
+    window.scrollTo(0, posicionLista);
+    registrarPantalla('tickets', mostrarLista);
+  }
+  registrarPantalla('tickets', mostrarLista);
+  container.querySelector('.nav-item[aria-current="page"]').addEventListener('click', () => {
+    if (!detalle.hidden) volverEnHistorial();
+  });
 
   function mostrarTickets() {
     // Mantener carga/error mientras todavía no haya una respuesta válida.
@@ -105,6 +119,10 @@ export function renderConsultaTickets(container) {
   buscador.addEventListener('input', mostrarTickets);
 
   async function abrirDetalle(tarjeta) {
+    registrarPantalla('detalle-ticket', () => {
+      if (listado.isConnected) void abrirDetalle(tarjeta);
+      else renderConsultaTickets(container);
+    });
     tarjetaOrigen = tarjeta;
     posicionLista = window.scrollY;
     const solicitud = ++solicitudDetalle;
@@ -136,6 +154,42 @@ export function renderConsultaTickets(container) {
         .filter(([, valor]) => valor != null && valor !== '')
         .map(([nombre, valor]) => `<div><dt>${nombre}</dt><dd>${escaparTexto(valor)}</dd></div>`).join('')}</dl>`;
       detalleEstado.textContent = '';
+      const seccionDespacho = document.createElement('section');
+      seccionDespacho.innerHTML = '<h3>Información del despacho</h3><p class="detalle-estado" role="status" aria-live="polite">Cargando despacho...</p>';
+      detalleContenido.append(seccionDespacho);
+      const estadoDespacho = seccionDespacho.querySelector('p');
+      try {
+        const despacho = await consultarDespachoTicket(tarjeta.dataset.ticketId);
+        if (solicitud !== solicitudDetalle || !detalle.isConnected) return;
+        if (!despacho) {
+          estadoDespacho.textContent = 'Este ticket todavía no tiene un despacho registrado.';
+          return;
+        }
+        const fecha = despacho.fechaHora ? new Date(despacho.fechaHora) : null;
+        const fechaHora = fecha && !Number.isNaN(fecha.getTime())
+          ? new Intl.DateTimeFormat('es', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }).format(fecha)
+          : 'No disponible';
+        const datosDespacho = [
+          ['Galones servidos', despacho.galonesServidos ?? 'No disponible'],
+          ['Observaciones', despacho.observaciones || 'Sin observaciones'],
+          ['Fecha/hora del despacho', fechaHora],
+          ['Operador', despacho.operador?.nombre || 'No disponible'],
+          ['Tanque', [despacho.tanque?.nombre, despacho.tanque?.codigo].filter(Boolean).join(' — ') || 'No disponible'],
+          ['Estación', despacho.estacion?.nombre || 'No disponible']
+        ];
+        const datos = document.createElement('dl');
+        datos.className = 'ticket-detalle-datos';
+        datos.innerHTML = datosDespacho.map(([nombre, valor]) => `<div><dt>${nombre}</dt><dd>${escaparTexto(valor)}</dd></div>`).join('');
+        estadoDespacho.textContent = '';
+        seccionDespacho.append(datos);
+      } catch (err) {
+        if (solicitud !== solicitudDetalle || !detalle.isConnected) return;
+        estadoDespacho.textContent = err.status === 403 ? 'No tienes permisos para consultar el despacho.'
+          : err.status === 401 ? 'Sesión inválida o expirada.'
+          : err instanceof TypeError ? 'No se pudo conectar para consultar el despacho. Vuelve a abrir el detalle para reintentar.'
+          : `No se pudo cargar el despacho: ${err.message || 'Error del servidor'}`;
+        estadoDespacho.classList.add('is-error');
+      }
     } catch (err) {
       if (solicitud !== solicitudDetalle || !detalle.isConnected) return;
       const mensajes = { 401: 'Sesión inválida o expirada.', 403: 'No tienes permisos para consultar este ticket.', 404: 'El ticket no está disponible.', 500: 'No se pudo cargar el detalle por un error del servidor.' };
@@ -158,11 +212,7 @@ export function renderConsultaTickets(container) {
     }
   });
   detalle.querySelector('.ticket-atras').addEventListener('click', () => {
-    solicitudDetalle++;
-    detalle.hidden = true;
-    listado.hidden = false;
-    tarjetaOrigen?.focus({ preventScroll: true });
-    window.scrollTo(0, posicionLista);
+    volverEnHistorial();
   });
 
   filtros.forEach(boton => {

@@ -1,3 +1,4 @@
+import { registrarPantalla } from '../navigation.js';
 import { renderPerfil } from './perfil.js';
 // src/pages/ticket.js
 import { renderDespacho } from './despacho.js';
@@ -6,6 +7,7 @@ import { renderConsultaTickets } from './consultaTickets.js';
 import logoUrl from '../assets/lavomva-marca-blanco.png';
 
 export function renderTicket(container, resultado) {
+  registrarPantalla('ticket', () => renderTicket(container, resultado));
   if (!resultado.valido) {
     const idTicket = resultado.ticket?.id ?? resultado.ticketId ?? resultado.id;
     container.innerHTML = `

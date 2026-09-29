@@ -1,3 +1,4 @@
+import { registrarPantalla } from '../navigation.js';
 import { renderPerfil } from './perfil.js';
 // src/pages/escaner.js
 import { Html5Qrcode } from 'html5-qrcode';
@@ -8,6 +9,7 @@ import { logout } from '../services/sessionService.js';
 import logoUrl from '../assets/lavomva-marca-blanco.png';
 
 export function renderEscaner(container) {
+  registrarPantalla('escaner', () => renderEscaner(container), async () => { if (procesando || saliendo) return false; let listo = false; await salir(() => { listo = true; }); return listo; });
   container.innerHTML = `
 <div class="escaner-page" lang="es">
 <header class="header"><div class="brand">

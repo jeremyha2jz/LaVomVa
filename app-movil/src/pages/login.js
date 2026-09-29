@@ -1,8 +1,10 @@
+import { registrarPantalla } from '../navigation.js';
 // src/pages/login.js
 import { login } from '../services/ticketService.js';
 import logoUrl from '../assets/lavomva-marca-blanco.png';
 
 export function renderLogin(container, onLoginExitoso) {
+  registrarPantalla('login', () => renderLogin(container, onLoginExitoso));
   container.innerHTML = `
 <div class="login-page" lang="es">
 <header class="header"><div class="brand">

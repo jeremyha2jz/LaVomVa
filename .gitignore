@@ -431,4 +431,6 @@ FodyWeavers.xsd
 dist
 dist-ssr
 *.local
+.env.*
+!.env.example
 .DS_Store

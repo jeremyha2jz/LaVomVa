@@ -1,197 +1,108 @@
-# despacho-app — App Móvil/PWA del Despachador
+# LaVomVa PWA
 
-Parte de **Persona 4** dentro del proyecto grupal `reto-tendencias` (Tendencias en Software). Esta app es la herramienta que usa el despachador en la estación de combustible, desde un celular, para escanear el QR de un ticket, validarlo y registrar el despacho de galones.
+Aplicación móvil instalable para el despachador de combustible: valida tickets mediante QR, registra despachos y consulta tickets contra el backend LaVomVa.
 
-> 📌 **Si eres Persona 2 (Backend) o estás usando una IA para ayudarte con el backend**: pégale este archivo completo a tu asistente y dile que implemente los 4 endpoints descritos en la sección "Contrato con el backend". Esa sección tiene exactamente los JSON de entrada/salida que esta app ya está esperando — no hace falta adivinar nada.
+## Stack
 
----
+- Vite y JavaScript puro.
+- `html5-qrcode` para lectura con cámara.
+- PWA con manifest y service worker. Las operaciones con el backend necesitan conexión; no hay registro de despachos offline.
 
-## Estado del proyecto
+## Funcionalidades actuales
 
-✅ Funcionalidad completa (login, escaneo QR, validación, registro de despacho, consulta de tickets, PWA instalable) — probada en celular real.
-🔧 Pendiente: pulido visual (CSS) — no afecta la lógica ni el contrato de datos.
-🔌 Backend: la app corre 100% con **datos simulados (mock)** por ahora. En cuanto el backend esté listo, se conecta cambiando **una sola variable** (ver abajo).
+- Login real para DESPACHADOR, JWT, refresh y logout manual.
+- Aviso a los 4 minutos de inactividad y logout a los 5 minutos. La actividad reinicia el contador.
+- Sesión en `sessionStorage`, sin persistencia en `localStorage`: al terminar la sesión de pestaña/PWA se requiere login. Algunos navegadores pueden restaurar la sesión de pestaña al reabrirla; cerrar una ventana de PWA no siempre termina su proceso.
+- Escaneo QR y validación real de tickets.
+- Confirmación de identidad, consulta de tanques y registro real de despacho.
+- Consulta real de tickets, filtros por estado, búsqueda por correlativo/empleado/vehículo y detalle por UUID.
+- El detalle reutiliza los nombres del listado. No muestra observaciones del despacho porque no hay un GET compatible para recuperarlas.
 
----
+Estados soportados: `CREADO`, `ENVIADO`, `PENDIENTE`, `PROXIMO_A_VENCER`, `VENCIDO`, `CONSUMIDO` y `ANULADO`.
 
-## Stack técnico
+El QR contiene un **token**, no el correlativo visible `COM-2026-...`. La entrada manual también espera el token exacto del QR.
 
-- **Vanilla JavaScript + Vite** (sin framework — cada "página" es una función que pinta HTML en un contenedor)
-- **PWA**: `manifest.json` + `sw.js` (service worker), instalable en celular
-- **html5-qrcode**: librería para leer códigos QR desde la cámara
+## Desarrollo
 
-## Cómo correr el proyecto
+Requisitos: Node.js compatible con Vite 8 (20.19+ o 22.12+), npm y backend LaVomVa funcionando. Para cámara/PWA en un celular utiliza HTTPS, por ejemplo mediante un túnel a Vite; `localhost` permite pruebas en el propio equipo.
 
-```bash
+Desde la raíz del repositorio:
+
+```sh
+cd app-movil
 npm install
+```
+
+Copia `.env.example` a `.env.local` dentro de `app-movil` y conserva:
+
+```dotenv
+VITE_API_URL=/api
+```
+
+Inicia el backend en `http://localhost:5007` y ejecuta:
+
+```sh
 npm run dev
 ```
 
-Abre `http://localhost:5173`. Usuario de prueba (mock): `despachador1` / `1234`.
+Abre la URL que imprime Vite. `vite.config.js` reenvía `/api` a `http://localhost:5007`, conservando la ruta: `/api/tickets` llega a `http://localhost:5007/api/tickets`. Este proxy se configura para desarrollo y no se incluye en el build. Permite usar un único túnel HTTPS hacia Vite desde el celular.
 
-## Estructura de archivos
+## Probar desde un celular con ngrok
 
-```
-despacho-app/
-├── index.html
-├── manifest.json          # config de PWA (nombre, iconos, colores)
-├── vite.config.js
-├── package.json
-├── public/
-│   ├── sw.js               # service worker (cache offline)
-│   └── icons/               # icon-192.png, icon-512.png
-└── src/
-    ├── main.js              # punto de entrada, decide qué pantalla mostrar
-    ├── pages/
-    │   ├── login.js
-    │   ├── escaner.js        # lee QR con la cámara
-    │   ├── ticket.js          # muestra el ticket validado
-    │   ├── despacho.js        # formulario de galones servidos
-    │   └── consultaTickets.js
-    ├── services/
-    │   ├── ticketService.js   # ⭐ ÚNICA capa que habla con el backend
-    │   └── mockData.js        # datos falsos usados mientras USE_MOCK = true
-    └── styles/
-        └── main.css
-```
+Con ngrok instalado y configurado, el backend corriendo en `http://localhost:5007` y `VITE_API_URL=/api`:
 
----
+1. Desde `app-movil`, levanta la PWA:
 
-## Contrato con el backend
+   ```sh
+   npm run dev
+   ```
 
-Todo lo que esta app necesita del backend pasa por **4 funciones** en `src/services/ticketService.js`. Ahora mismo esas funciones devuelven datos simulados (`mockData.js`). Cuando el backend esté listo, solo hay que:
+2. Vite normalmente inicia en `http://localhost:5173`. Comprueba el puerto que indica la terminal.
+3. En otra terminal, ejecuta:
 
-1. Cambiar `const USE_MOCK = true;` a `false` en `ticketService.js`.
-2. Poner la URL real en `const API_URL = "https://tu-backend-aqui.com/api";`.
+   ```sh
+   ngrok http 5173
+   ```
 
-El resto de la app (todas las páginas) **no cambia ni una línea** — solo consume estas 4 funciones, nunca llama al backend directamente.
+4. Abre en el celular la URL **HTTPS** que proporciona ngrok.
 
-### 1. Login
+Si Vite utiliza otro puerto, usa ese mismo puerto en el comando de ngrok. En desarrollo, Vite redirige `/api` hacia `http://localhost:5007`: no necesitas exponer el backend con otro túnel.
 
-**`POST {API_URL}/login`**
+Mantén activas las tres terminales durante la prueba: backend, `npm run dev` y ngrok.
 
-Request:
-```json
-{
-  "usuario": "string",
-  "contrasena": "string"
-}
+Si el navegador móvil carga una versión vieja, puede ser necesario limpiar los datos/caché del sitio o reinstalar la PWA.
+
+## Entorno y producción
+
+`src/services/apiConfig.js` lee `VITE_API_URL`, elimina barras finales y usa `/api` si no está definida. No necesitas modificar código para cambiar de backend.
+
+Antes de compilar para producción, define la variable en el entorno de build o en un archivo local `.env.production` ignorado por Git:
+
+```dotenv
+VITE_API_URL=https://DOMINIO-DEL-BACKEND/api
 ```
 
-Response (200 OK):
-```json
-{
-  "token": "jwt-de-verdad-aqui",
-  "nombre": "Juan Pérez",
-  "rol": "Despachador"
-}
+Sustituye el dominio de ejemplo por el real. Las variables del proceso tienen prioridad sobre los archivos de entorno y `.env.production` tiene prioridad sobre `.env.local` para ese modo. Vite incorpora el valor al compilar: cambiarlo después requiere otro build. Reinicia Vite si cambias variables durante desarrollo.
+
+```sh
+npm run build
+npm run preview
 ```
 
-Si usuario/contraseña son incorrectos, la app espera un status de error (4xx) para mostrar el mensaje "Usuario o contraseña incorrectos".
+`preview` permite revisar localmente el build; no es un servidor de producción. Publica el contenido de `dist/` mediante HTTPS. El backend desplegado debe permitir CORS desde el dominio de la PWA, incluyendo los encabezados Authorization/Content-Type y los métodos utilizados. Si se conserva `/api` en producción, el alojamiento debe reenviar esa ruta al backend; el proxy de desarrollo no se despliega.
 
-El `token` se guarda en `localStorage` y se debería mandar en cada request futura como header `Authorization: Bearer <token>`.
+En PowerShell, si la política bloquea `npm.ps1`, usa `npm.cmd` en los comandos anteriores.
 
-### 2. Validar ticket (al escanear el QR)
+## Flujo
 
-**`POST {API_URL}/tickets/validar`**
+Login → Escanear QR → Validar ticket → Confirmar identidad → Seleccionar tanque → Registrar despacho → Consultar tickets.
 
-Request — el string crudo que lee la cámara del QR:
-```json
-{
-  "qrData": "string-o-json-codificado-en-el-QR"
-}
-```
+## Notas para desarrollo
 
-Response (siempre 200, el resultado se indica con el campo `valido`):
-```json
-{
-  "valido": true,
-  "estado": "Creado",
-  "ticket": {
-    "id": "COM-2026-000001",
-    "empleado": { "codigo": "E001", "nombre": "Juan Pérez" },
-    "vehiculo": { "placa": "A123456", "ficha": "V01" },
-    "departamento": "Logística",
-    "cantidadAutorizada": 20,
-    "tipoCombustible": "Gasolina Premium",
-    "fechaEmision": "2026-09-01",
-    "fechaVencimiento": "2026-09-30"
-  },
-  "mensajeError": null
-}
-```
-
-Caso inválido (ticket vencido, ya usado, QR corrupto, etc.):
-```json
-{
-  "valido": false,
-  "estado": "Vencido",
-  "ticket": null,
-  "mensajeError": "El ticket ya venció"
-}
-```
-
-Valores esperados para `estado`: `"Creado"` / `"Pendiente"`, `"Vencido"`, `"Consumido"`, `"Anulado"`. La app rechaza el despacho en cualquier estado que no sea válido, con el `mensajeError` mostrado tal cual al usuario.
-
-### 3. Registrar despacho
-
-**`POST {API_URL}/despachos`**
-
-Request:
-```json
-{
-  "ticketId": "COM-2026-000001",
-  "galonesServidos": 18.5,
-  "observaciones": "string opcional"
-}
-```
-
-Response:
-```json
-{
-  "ok": true,
-  "mensaje": "Despacho registrado"
-}
-```
-
-Notas de validación que ya hace el frontend (pero deben repetirse en el backend, porque el frontend nunca es garantía de seguridad):
-- `galonesServidos` debe ser mayor a 0.
-- `galonesServidos` no puede exceder la `cantidadAutorizada` del ticket.
-
-### 4. Consultar tickets
-
-**`GET {API_URL}/tickets`**
-
-Response — lista (sin body de request):
-```json
-[
-  {
-    "id": "COM-2026-000001",
-    "estado": "Pendiente",
-    "vehiculo": "A123456",
-    "cantidadAutorizada": 20,
-    "fechaVencimiento": "2026-09-30"
-  }
-]
-```
-
----
-
-## Notas importantes para el backend
-
-- **Autenticación**: una vez el login devuelva un token real, todos los demás endpoints deberían validar el header `Authorization: Bearer <token>` y rechazar con 401 si falta o es inválido.
-- **El QR** solo trae un identificador/string (o JSON firmado) del ticket — es el backend quien decodifica, verifica hash/firma y busca los datos reales. El frontend nunca genera ni valida el QR por su cuenta, solo lo lee y lo reenvía tal cual llega de la cámara.
-- **Los campos de fecha** se están manejando como string `"YYYY-MM-DD"` en el mock — si el backend real usa otro formato (ISO con hora, timestamp, etc.), avisar para ajustar el frontend.
-- El frontend **no toca base de datos ni lógica de negocio** — solo consume esta API. Cualquier cambio a la forma de estos JSON debe coordinarse antes de implementarlo, porque rompe el contrato de arriba.
-
-## Progressive Web App (PWA)
-
-- `manifest.json` permite "instalar" la app desde el navegador.
-- `sw.js` cachea `index.html` y sirve la app aunque no haya internet (aunque las llamadas al backend sí necesitan conexión).
-- Recuerda: el service worker cachea agresivamente. Si haces cambios a `sw.js` y no se reflejan, en DevTools → Application → Service Workers, marca "Update on reload" o dale "Unregister" manualmente.
-
-## Pendientes conocidos
-
-- [ ] Estilo visual (CSS) de todas las pantallas — en progreso.
-- [ ] Conexión real al backend (cambiar `USE_MOCK` a `false`).
-- [ ] HTTPS real para producción (para que la cámara funcione fuera de `localhost`; en desarrollo se usa un túnel de ngrok).
+- Los flujos principales no utilizan mocks. Las peticiones protegidas reutilizan `fetchConSesion()` para JWT y refresh.
+- «Mis tickets» muestra el listado entregado por la API, sin filtrar por despachador o estación. Búsqueda y filtros de estado se aplican en el cliente.
+- `.env.local` no debe subirse a Git. `.env.example` es la plantilla compartida sin credenciales.
+- Las variables `VITE_*` son públicas en el navegador. Nunca guardes contraseñas, JWT ni secretos QR/JWT/bootstrap en ellas o en el repositorio.
+- `dist/` se genera mediante build y está ignorado; no se versiona. Tampoco se versionan `node_modules/` ni logs.
+- `design-reference/` contiene referencias visuales; los flujos reales están en `src/`.
+- El service worker almacena la página inicial en caché. Si ves una versión antigua al probar, revisa/desregistra el service worker y limpia su caché desde las herramientas del navegador.

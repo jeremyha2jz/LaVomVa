@@ -2157,3 +2157,18 @@ code {
   border-color: var(--green);
   color: #fff;
 }
+.salida-modal {
+  width: min(380px, calc(100% - 32px));
+  box-sizing: border-box; padding: 24px; border: 0; border-radius: 24px;
+  background: #fff; color: #0f1524; font-family: Poppins, sans-serif;
+  box-shadow: 0 20px 60px #0003;
+}
+.salida-modal::backdrop { background: rgba(15, 21, 36, .6); }
+.salida-modal h2 { margin: 0 0 12px; font-size: 24px; }
+.salida-modal p { color: #657084; }
+.salida-modal form { display: grid; gap: 10px; }
+.salida-modal button {
+  min-height: 48px; border: 1px solid #dce2e8; border-radius: 14px;
+  background: #fff; color: #0f1524; font: inherit; cursor: pointer;
+}
+.salida-modal button[value="salir"] { background: #CD212A; border-color: #CD212A; color: #fff; }

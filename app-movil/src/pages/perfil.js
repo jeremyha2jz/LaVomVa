@@ -1,9 +1,11 @@
+import { registrarPantalla } from '../navigation.js';
 import { renderEscaner } from './escaner.js';
 import { renderConsultaTickets } from './consultaTickets.js';
 import { obtenerSesion, logout } from '../services/sessionService.js';
 import logoUrl from '../assets/lavomva-marca-blanco.png';
 
 export function renderPerfil(container) {
+  registrarPantalla('perfil', () => renderPerfil(container));
   container.innerHTML = `<div class="perfil-page" lang="es"><header class="header"><div class="brand">
   <img class="brand-logo" src="${logoUrl}" alt="" width="260" height="199">
   <p class="brand-title">LaVomVa</p>

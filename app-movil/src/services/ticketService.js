@@ -83,3 +83,14 @@ export async function consultarDetalleTicket(id) {
   }
   return ticket;
 }
+
+export async function consultarDespachoTicket(id) {
+  if (!id) throw new Error('El ticket no tiene un identificador disponible.');
+  const res = await fetchConSesion(API_URL + '/tickets/' + encodeURIComponent(id) + '/despacho');
+  if (res.status === 404) return null;
+  const despacho = await leerRespuesta(res);
+  if (!despacho || typeof despacho !== 'object' || Array.isArray(despacho) || !despacho.id) {
+    throw new Error('Respuesta de despacho incompleta del servidor');
+  }
+  return despacho;
+}

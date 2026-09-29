@@ -1,3 +1,4 @@
+import { registrarPantalla } from '../navigation.js';
 import { renderPerfil } from './perfil.js';
 // src/pages/despacho.js
 import { registrarDespacho, obtenerTanquesDespacho } from '../services/ticketService.js';
@@ -6,6 +7,7 @@ import { renderConsultaTickets } from './consultaTickets.js';
 import logoUrl from '../assets/lavomva-marca-blanco.png';
 
 export function renderDespacho(container, ticket) {
+  registrarPantalla('despacho', () => renderDespacho(container, ticket), () => !ocupado);
   container.innerHTML = `
 <div class="despacho-page" lang="es">
 <header class="header"><div class="brand">
@@ -85,6 +87,24 @@ export function renderDespacho(container, ticket) {
   const mensajeTanque = container.querySelector('#tanque-estado');
   const reintentarTanques = container.querySelector('#reintentar-tanques');
   const identidad = container.querySelector('#identidad-confirmada');
+  const mensajeIdentidad = 'Debes confirmar que verificaste la identidad antes de registrar el despacho.';
+  const tituloModal = container.querySelector('#confirmTitle');
+  const contenidoSi = btnSi.innerHTML;
+  const contenidoNo = btnNo.innerHTML;
+  function validarIdentidad() {
+    if (identidad.checked) return true;
+    estadoMsg.textContent = mensajeIdentidad;
+    return false;
+  }
+  identidad.addEventListener('invalid', () => { validarIdentidad(); });
+  identidad.addEventListener('change', () => {
+    identidad.setCustomValidity(identidad.checked ? '' : mensajeIdentidad);
+    if (identidad.checked && estadoMsg.textContent === mensajeIdentidad) estadoMsg.textContent = '';
+  });
+  identidad.setCustomValidity(mensajeIdentidad);
+  btnConfirmar.addEventListener('click', (evento) => {
+    if (!validarIdentidad()) evento.preventDefault();
+  });
   let tanques = [];
   let cargandoTanques = false;
   const fondoModal = [container.querySelector('.header'), container.querySelector('.main'), container.querySelector('.nav-wrap')];
@@ -137,8 +157,16 @@ export function renderDespacho(container, ticket) {
 
   // Devuelve una Promise que se resuelve con true/false según el botón que
   // presione el usuario, para poder usar "await" como si fuera confirm() nativo.
-  function pedirConfirmacion(mensaje) {
+  function pedirConfirmacion(mensaje, cancelar = false) {
     return new Promise((resolve) => {
+      tituloModal.textContent = cancelar ? '¿Cancelar despacho?' : 'Confirmar despacho';
+      if (cancelar) {
+        btnSi.textContent = 'Sí, cancelar';
+        btnNo.textContent = 'Seguir aquí';
+      } else {
+        btnSi.innerHTML = contenidoSi;
+        btnNo.innerHTML = contenidoNo;
+      }
       modalTexto.textContent = mensaje;
       modal.style.display = "flex";
       modal.setAttribute('aria-hidden', 'false');
@@ -183,10 +211,7 @@ export function renderDespacho(container, ticket) {
     const galones = parseFloat(container.querySelector('#galones').value);
     const observaciones = container.querySelector('#observaciones').value;
     const tanqueId = Number(selectorTanque.value);
-    if (!identidad.checked) {
-      estadoMsg.textContent = 'Confirma que has verificado la identidad.';
-      return;
-    }
+    if (!validarIdentidad()) return;
     if (!tanques.some(t => t.id === tanqueId)) {
       estadoMsg.textContent = 'Selecciona un tanque compatible.';
       return;
@@ -212,6 +237,7 @@ export function renderDespacho(container, ticket) {
         `¿Confirmas registrar ${galones} galones para el ticket ${ticket.id}?`
       );
       if (!confirmado || !container.contains(pantalla)) return;
+      if (!validarIdentidad()) return;
 
       form.setAttribute('aria-busy', 'true');
       [btnCancelar, btnEscaner, btnTickets, btnPerfil].forEach(boton => { boton.disabled = true; });
@@ -286,9 +312,15 @@ export function renderDespacho(container, ticket) {
     }
   });
 
-  container.querySelector('#cancelar-despacho').addEventListener('click', () => {
-    if (ocupado) return;
-    renderEscaner(container);
+  container.querySelector('#cancelar-despacho').addEventListener('click', async () => {
+    if (ocupado || registrado) return;
+    ocupado = true;
+    try {
+      const cancelar = await pedirConfirmacion('Los datos ingresados en este despacho se perderán.', true);
+      if (cancelar && container.contains(pantalla)) renderEscaner(container);
+    } finally {
+      ocupado = false;
+    }
   });
   btnEscaner.addEventListener('click', () => {
     if (!ocupado) renderEscaner(container);
