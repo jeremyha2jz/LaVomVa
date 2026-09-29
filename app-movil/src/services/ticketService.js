@@ -1,8 +1,7 @@
 // src/services/ticketService.js
-import { listaTicketsMock } from './mockData.js';
 import { fetchConSesion } from './sessionService.js';
 
-const USE_MOCK = true;
+
 
 import { API_URL } from './apiConfig.js';
 export { login } from './sessionService.js';
@@ -69,20 +68,8 @@ export async function registrarDespacho(ticketId, galonesServidos, observaciones
 }
 
 export async function consultarTickets() {
-  if (USE_MOCK) {
-    await simularRetraso();
-    return listaTicketsMock;
-  }
-
-  const res = await fetch(`${API_URL}/tickets`, {
-    headers: {
-      "Authorization": `Bearer ${localStorage.getItem("token")}`,
-      "ngrok-skip-browser-warning": "true"
-    }
-  });
-  return leerRespuesta(res);
-}
-
-function simularRetraso() {
-  return new Promise(resolve => setTimeout(resolve, 300));
+  const res = await fetchConSesion(API_URL + '/tickets');
+  const tickets = await leerRespuesta(res);
+  if (!Array.isArray(tickets)) throw new Error('Respuesta de tickets incompleta del servidor');
+  return tickets;
 }

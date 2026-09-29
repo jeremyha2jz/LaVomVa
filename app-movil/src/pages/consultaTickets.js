@@ -54,19 +54,23 @@ export function renderConsultaTickets(container) {
         <li class="ticket-item ticket-card state-${estado}">
           <div class="ticket-top">
             <div class="ticket-id-wrap">${icono('tag')}
-              <div><div class="info-label">ID del ticket</div><div class="ticket-id">${escaparTexto(t.id)}</div></div>
+              <div><div class="info-label">ID del ticket</div><div class="ticket-id">${escaparTexto(t.numeroSecuencial)}</div></div>
             </div>
-            <span class="status ${estado}">${escaparTexto(t.estado)}</span>
+            <span class="status ${estado}">${escaparTexto(textoEstado(t.estado))}</span>
           </div>
           <div class="ticket-meta">
             <div class="meta-item"><div class="meta-label">${icono('car')}Vehículo</div><div class="meta-value">${escaparTexto(t.vehiculo)}</div></div>
-            <div class="meta-item"><div class="meta-label">${icono('pump')}Autorizado</div><div class="meta-value">${escaparTexto(t.cantidadAutorizada)} galones</div></div>
-            <div class="meta-item"><div class="meta-label">${icono('cal')}Vence el</div><div class="meta-value">${escaparTexto(t.fechaVencimiento)}</div></div>
+            <div class="meta-item"><div class="meta-label">${icono('pump')}Autorizado</div><div class="meta-value">${escaparTexto(t.cantidadAutorizadaGalones)} galones</div></div>
+            <div class="meta-item"><div class="meta-label">${icono('cal')}Vence el</div><div class="meta-value">${escaparTexto(formatearFecha(t.fechaVencimiento))}</div></div>
           </div>
         </li>`;
     }).join('');
   }).catch((err) => {
-    estadoMsg.textContent = "Error al cargar tickets";
+    const contexto = { 401: 'Sesión inválida o expirada', 403: 'Sin permisos para consultar tickets', 500: 'Error del servidor al cargar tickets' };
+    estadoMsg.textContent = err.status
+      ? `${contexto[err.status] || 'Error al cargar tickets'} (${err.status}): ${err.message}`
+      : err instanceof TypeError ? 'No se pudo conectar con el servidor. Comprueba tu conexión y vuelve a abrir Tickets.'
+        : err.message || 'Error al cargar tickets';
     estadoMsg.classList.add('is-error');
   });
 
@@ -91,9 +95,35 @@ function escaparTexto(valor) {
 }
 
 function estadoVisual(estado) {
-  switch (String(estado ?? '').trim().toLowerCase()) {
-    case 'pendiente': return 'pending';
-    case 'vencido': return 'expired';
+  switch (normalizarEstado(estado)) {
+    case 'CREADO':
+    case 'ENVIADO':
+    case 'PENDIENTE': return 'pending';
+    case 'PROXIMO_A_VENCER':
+    case 'VENCIDO':
+    case 'ANULADO': return 'expired';
+    case 'CONSUMIDO': return 'used';
     default: return 'used';
   }
+}
+
+function normalizarEstado(estado) {
+  return String(estado ?? '').trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, '_');
+}
+
+function textoEstado(estado) {
+  const textos = new Map([
+    ['CREADO', 'Creado'], ['ENVIADO', 'Enviado'], ['PENDIENTE', 'Pendiente'],
+    ['PROXIMO_A_VENCER', 'Próximo a vencer'], ['VENCIDO', 'Vencido'],
+    ['CONSUMIDO', 'Consumido'], ['ANULADO', 'Anulado']
+  ]);
+  return textos.get(normalizarEstado(estado)) ?? estado;
+}
+
+function formatearFecha(valor) {
+  if (!valor) return 'No disponible';
+  // Una fecha sin hora es un día de calendario, no un instante UTC.
+  const fecha = new Date(/^\d{4}-\d{2}-\d{2}$/.test(valor) ? `${valor}T00:00:00` : valor);
+  return Number.isNaN(fecha.getTime()) ? 'No disponible'
+    : new Intl.DateTimeFormat('es', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(fecha);
 }
