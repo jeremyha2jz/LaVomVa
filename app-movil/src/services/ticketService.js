@@ -73,3 +73,13 @@ export async function consultarTickets() {
   if (!Array.isArray(tickets)) throw new Error('Respuesta de tickets incompleta del servidor');
   return tickets;
 }
+
+export async function consultarDetalleTicket(id) {
+  if (!id) throw new Error('El ticket no tiene un identificador disponible.');
+  const res = await fetchConSesion(API_URL + '/tickets/' + encodeURIComponent(id));
+  const ticket = await leerRespuesta(res);
+  if (!ticket || typeof ticket !== 'object' || Array.isArray(ticket) || !ticket.id) {
+    throw new Error('Respuesta de detalle incompleta del servidor');
+  }
+  return ticket;
+}

@@ -1,6 +1,6 @@
 import { renderPerfil } from './perfil.js';
 // src/pages/consultaTickets.js
-import { consultarTickets } from '../services/ticketService.js';
+import { consultarTickets, consultarDetalleTicket } from '../services/ticketService.js';
 import { renderEscaner } from './escaner.js';
 import logoUrl from '../assets/lavomva-marca-blanco.png';
 
@@ -16,7 +16,22 @@ export function renderConsultaTickets(container) {
   <div class="content">
     <h1 class="screen-title">Mis tickets</h1>
     <p class="screen-subtitle">Consulta el estado de tus tickets de combustible.</p>
+    <section id="consulta-listado">
+    <label class="ticket-buscador">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="6" stroke="currentColor" stroke-width="2"/><path d="m15 15 6 6" stroke="currentColor" stroke-width="2"/></svg>
+      <input id="buscar-tickets" type="search" aria-label="Buscar por correlativo, empleado o vehículo" placeholder="Buscar ticket, empleado o vehículo">
+    </label>
+    <div class="ticket-filtros" role="group" aria-label="Filtrar tickets por estado">
+      ${['TODOS', 'CREADO', 'ENVIADO', 'PENDIENTE', 'PROXIMO_A_VENCER', 'VENCIDO', 'CONSUMIDO', 'ANULADO'].map(estado => `<button type="button" class="ticket-filtro" data-estado="${estado}" aria-pressed="${estado === 'TODOS'}">${estado === 'TODOS' ? 'Todos' : textoEstado(estado)}</button>`).join('')}
+    </div>
     <p id="consulta-estado" role="status" aria-live="polite">Cargando tickets...</p><ul class="tickets-list" id="lista-tickets" aria-label="Tickets de combustible"></ul>
+    </section>
+    <section id="consulta-detalle" hidden aria-label="Detalle del ticket">
+      <button type="button" class="ticket-atras">← Atrás</button>
+      <h2 tabindex="-1">Detalle del ticket</h2>
+      <p class="detalle-estado" role="status" aria-live="polite"></p>
+      <div class="detalle-contenido"></div>
+    </section>
   </div>
   <svg class="watermark" viewBox="0 0 120 120" fill="none" aria-hidden="true">
   <path d="M25 16h53v88H25z" stroke="currentColor" stroke-width="10" stroke-linejoin="round"/>
@@ -39,19 +54,39 @@ export function renderConsultaTickets(container) {
 
   const estadoMsg = container.querySelector('#consulta-estado');
   const lista = container.querySelector('#lista-tickets');
+  const filtros = container.querySelectorAll('.ticket-filtro');
+  let ticketsRecibidos = null;
+  let filtroActivo = 'TODOS';
+  const buscador = container.querySelector('#buscar-tickets');
+  const listado = container.querySelector('#consulta-listado');
+  const detalle = container.querySelector('#consulta-detalle');
+  const detalleEstado = detalle.querySelector('.detalle-estado');
+  const detalleContenido = detalle.querySelector('.detalle-contenido');
+  let solicitudDetalle = 0;
+  let tarjetaOrigen;
+  let posicionLista = 0;
 
-  consultarTickets().then((tickets) => {
+  function mostrarTickets() {
+    // Mantener carga/error mientras todavía no haya una respuesta válida.
+    if (ticketsRecibidos === null) return;
+    const busqueda = normalizarBusqueda(buscador.value);
+    const tickets = ticketsRecibidos.filter(t =>
+      (filtroActivo === 'TODOS' || normalizarEstado(t.estado) === filtroActivo) &&
+      [t.numeroSecuencial, textoDescriptivo(t.empleado), textoDescriptivo(t.vehiculo)].some(valor => normalizarBusqueda(valor).includes(busqueda)));
     estadoMsg.textContent = "";
+    lista.innerHTML = '';
 
     if (!tickets.length) {
-      estadoMsg.textContent = "No hay tickets registrados";
+      estadoMsg.textContent = ticketsRecibidos.length && busqueda
+        ? 'No hay tickets que coincidan con la búsqueda.' : filtroActivo === 'TODOS'
+        ? 'No hay tickets registrados' : 'No hay tickets con este estado.';
       return;
     }
 
     lista.innerHTML = tickets.map(t => {
       const estado = estadoVisual(t.estado);
       return `
-        <li class="ticket-item ticket-card state-${estado}">
+        <li class="ticket-item ticket-card state-${estado}" role="button" tabindex="0" data-ticket-id="${escaparTexto(t.id)}" aria-label="Ver detalle de ${escaparTexto(t.numeroSecuencial)}">
           <div class="ticket-top">
             <div class="ticket-id-wrap">${icono('tag')}
               <div><div class="info-label">ID del ticket</div><div class="ticket-id">${escaparTexto(t.numeroSecuencial)}</div></div>
@@ -65,6 +100,82 @@ export function renderConsultaTickets(container) {
           </div>
         </li>`;
     }).join('');
+  }
+
+  buscador.addEventListener('input', mostrarTickets);
+
+  async function abrirDetalle(tarjeta) {
+    tarjetaOrigen = tarjeta;
+    posicionLista = window.scrollY;
+    const solicitud = ++solicitudDetalle;
+    listado.hidden = true;
+    detalle.hidden = false;
+    detalleEstado.classList.remove('is-error');
+    detalleEstado.textContent = 'Cargando detalle...';
+    detalleContenido.innerHTML = '';
+    detalle.querySelector('h2').focus();
+    try {
+      const seleccionado = ticketsRecibidos.find(t => String(t.id) === tarjeta.dataset.ticketId);
+      const respuesta = await consultarDetalleTicket(tarjeta.dataset.ticketId);
+      if (solicitud !== solicitudDetalle || !detalle.isConnected) return;
+      const ticket = { ...seleccionado, ...respuesta };
+      // El detalle puede contener solo IDs; conservar los nombres del listado.
+      for (const campo of ['empleado', 'vehiculo', 'departamento', 'tipoCombustible']) {
+        ticket[campo] = textoDescriptivo(respuesta[campo]) || textoDescriptivo(seleccionado?.[campo]);
+      }
+      const campos = [
+        ['Correlativo', ticket.numeroSecuencial], ['Estado', textoEstado(ticket.estado)],
+        ['Empleado', ticket.empleado], ['Vehículo', ticket.vehiculo],
+        ['Departamento', ticket.departamento], ['Combustible', ticket.tipoCombustible],
+        ['Galones autorizados', ticket.cantidadAutorizadaGalones],
+        ['Fecha de creación', ticket.fechaCreacion ? formatearFecha(ticket.fechaCreacion) : null],
+        ['Fecha de vencimiento', ticket.fechaVencimiento ? formatearFecha(ticket.fechaVencimiento) : null],
+        ['Motivo de anulación', ticket.motivoAnulacion]
+      ];
+      detalleContenido.innerHTML = `<dl class="ticket-detalle-datos">${campos
+        .filter(([, valor]) => valor != null && valor !== '')
+        .map(([nombre, valor]) => `<div><dt>${nombre}</dt><dd>${escaparTexto(valor)}</dd></div>`).join('')}</dl>`;
+      detalleEstado.textContent = '';
+    } catch (err) {
+      if (solicitud !== solicitudDetalle || !detalle.isConnected) return;
+      const mensajes = { 401: 'Sesión inválida o expirada.', 403: 'No tienes permisos para consultar este ticket.', 404: 'El ticket no está disponible.', 500: 'No se pudo cargar el detalle por un error del servidor.' };
+      detalleEstado.textContent = mensajes[err.status] || (err instanceof TypeError
+        ? 'No se pudo conectar con el servidor. Comprueba tu conexión e inténtalo nuevamente.'
+        : err.message || 'No se pudo cargar el detalle.');
+      detalleEstado.classList.add('is-error');
+    }
+  }
+
+  lista.addEventListener('click', event => {
+    const tarjeta = event.target.closest('[data-ticket-id]');
+    if (tarjeta) abrirDetalle(tarjeta);
+  });
+  lista.addEventListener('keydown', event => {
+    const tarjeta = event.target.closest('[data-ticket-id]');
+    if (tarjeta && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault();
+      abrirDetalle(tarjeta);
+    }
+  });
+  detalle.querySelector('.ticket-atras').addEventListener('click', () => {
+    solicitudDetalle++;
+    detalle.hidden = true;
+    listado.hidden = false;
+    tarjetaOrigen?.focus({ preventScroll: true });
+    window.scrollTo(0, posicionLista);
+  });
+
+  filtros.forEach(boton => {
+    boton.addEventListener('click', () => {
+      filtroActivo = boton.dataset.estado;
+      filtros.forEach(filtro => filtro.setAttribute('aria-pressed', String(filtro.dataset.estado === filtroActivo)));
+      mostrarTickets();
+    });
+  });
+
+  consultarTickets().then((tickets) => {
+    ticketsRecibidos = tickets;
+    mostrarTickets();
   }).catch((err) => {
     const contexto = { 401: 'Sesión inválida o expirada', 403: 'Sin permisos para consultar tickets', 500: 'Error del servidor al cargar tickets' };
     estadoMsg.textContent = err.status
@@ -109,6 +220,18 @@ function estadoVisual(estado) {
 
 function normalizarEstado(estado) {
   return String(estado ?? '').trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, '_');
+}
+
+function normalizarBusqueda(valor) {
+  return String(valor ?? '').trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+function textoDescriptivo(valor) {
+  if (typeof valor === 'string') return valor.trim();
+  if (!valor || typeof valor !== 'object') return '';
+  // No convertir objetos a "[object Object]" ni presentar IDs como nombres.
+  return typeof valor.nombre === 'string' ? valor.nombre.trim()
+    : typeof valor.placa === 'string' ? valor.placa.trim() : '';
 }
 
 function textoEstado(estado) {
