@@ -24,7 +24,7 @@ export function Requests() {
     if (!selected) return
     setBusy(true)
     try { await resolveRequest(selected.id, decision, authorized); setSelected(null) }
-    catch (cause) { notify('No se pudo completar', cause instanceof Error ? cause.message : 'Error de la API.', 'error') }
+    catch (cause) { notify('No se pudo completar', cause instanceof Error ? cause.message : 'Ocurrió un error inesperado.', 'error') }
     finally { setBusy(false) }
   }
 
@@ -58,7 +58,7 @@ function NewRequestModal({ onClose, onSubmit }: { onClose: () => void; onSubmit:
     setBusy(true)
     try {
       await onSubmit({ employeeId: employee.id, employee: employee.name, employeeCode: employee.code, vehicleId: vehicle.id, vehicle: `${vehicle.plate} · ${vehicle.brand} ${vehicle.model}`, departmentId: department.id, department: department.name, fuelTypeId: fuelType.id, fuelType: fuelType.name, requestedGallons: Number(data.get('gallons')), expiresAt: new Date(String(data.get('expiresAt'))).toISOString(), kind: 'MANUAL', reason: String(data.get('reason')) })
-    } catch (cause) { notify('No se pudo registrar', cause instanceof Error ? cause.message : 'Error de la API.', 'error') }
+    } catch (cause) { notify('No se pudo registrar', cause instanceof Error ? cause.message : 'Ocurrió un error inesperado.', 'error') }
     finally { setBusy(false) }
   }
   return <Modal title="Nueva solicitud" subtitle="Completa los datos requeridos para solicitar combustible." onClose={onClose} size="lg"><form className="form-grid" onSubmit={(event) => void submit(event)}>

@@ -82,7 +82,7 @@ export function AppShell({ page, onNavigate, children }: { page: PageKey; onNavi
     <aside className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
       <div className="sidebar-top"><Logo /><button className="icon-button sidebar-close" onClick={() => setSidebarOpen(false)}><X size={20} /></button></div>
       <nav>{navigation.map((section) => <div className="nav-section" key={section.label}><span className="nav-label">{section.label}</span>{section.items.map((item) => <button key={item.key} className={`nav-item ${page === item.key ? 'active' : ''}`} onClick={() => navigate(item.key)}><item.icon size={19} /><span>{item.label}</span>{item.key === 'solicitudes' && pending > 0 && <b>{pending}</b>}</button>)}</div>)}</nav>
-      <div className="system-status"><div><ShieldCheck size={18} /><span><strong>Conectado a la API</strong><small>Datos de PostgreSQL</small></span></div><i /></div>
+      <div className="system-status"><div><ShieldCheck size={18} /><span><strong>En línea</strong></span></div><i /></div>
       <button className="profile-card" onClick={logout} title="Cerrar sesión"><div className="avatar">{initials}</div><span><strong>{profileName}</strong><small>{profileRole} · salir</small></span><ChevronDown size={17} /></button>
     </aside>
     {sidebarOpen && <button className="sidebar-overlay" onClick={() => setSidebarOpen(false)} aria-label="Cerrar menú" />}

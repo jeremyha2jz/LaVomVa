@@ -65,7 +65,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await authenticatedFetch(path, init)
   if (!response.ok) {
     if ([502, 503, 504].includes(response.status)) {
-      throw new Error('El servidor de la aplicación no está disponible. Inténtalo de nuevo cuando la API esté en funcionamiento.')
+      throw new Error('El servidor de la aplicación no está disponible. Inténtalo de nuevo más tarde.')
     }
     const body = await response.text()
     let message = body || `Error ${response.status}`

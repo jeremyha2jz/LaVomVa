@@ -61,7 +61,7 @@ export function Admin() {
     catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo activar.') }
   }
   return <div className="page"><PageHeader eyebrow="Configuración" title="Administración del sistema" description="Cuenta actual y gestión de usuarios." />
-    <section className="settings-grid"><article className="panel settings-card"><span><UserCog size={21} /></span><h2>Sesión actual</h2><dl><div><dt>Usuario</dt><dd>{session?.name}</dd></div><div><dt>Rol</dt><dd>{session?.role}</dd></div><div><dt>Origen</dt><dd>API / PostgreSQL</dd></div></dl></article>
+    <section className="settings-grid"><article className="panel settings-card"><span><UserCog size={21} /></span><h2>Sesión actual</h2><dl><div><dt>Usuario</dt><dd>{session?.name}</dd></div><div><dt>Rol</dt><dd>{session?.role}</dd></div></dl></article>
       {admin && <article className="panel settings-card"><span><KeyRound size={21} /></span><h2>Crear usuario</h2><form onSubmit={(event) => void create(event)} className="admin-user-form">
         <label>Nombre completo<input name="name" required minLength={3} /></label>
         <label>Usuario<input name="username" required minLength={3} /></label>
@@ -105,13 +105,13 @@ function OperationalSetup({ catalogs, tanks, refresh, notify }: {
       if (kind === 'estacion') await api.catalogCreate('estaciones', { nombre: field('name'), ubicacion: field('location'), activo: true })
       if (kind === 'tanque') await api.catalogCreate('tanques', { codigo: field('code'), nombre: field('name'), estacionId: Number(data.get('station')), tipoCombustibleId: Number(data.get('fuel')), capacidadGalones: Number(data.get('capacity')), existenciaActualGalones: 0, nivelCriticoGalones: Number(data.get('critical')), activo: true })
       await refresh(); setKind(null); notify('Configuración guardada', 'El nuevo registro ya está disponible.')
-    } catch (cause) { notify('No se pudo guardar', cause instanceof Error ? cause.message : 'Error de la API.', 'error') }
+    } catch (cause) { notify('No se pudo guardar', cause instanceof Error ? cause.message : 'Ocurrió un error inesperado.', 'error') }
     finally { setBusy(false) }
   }
   return <section className="panel settings-card" style={{ marginTop: 20 }}><span><Fuel size={21} /></span><h2>Configuración operativa</h2><p>Crea proveedores, estaciones y tanques antes de registrar recepciones y despachos.</p>
     <div className="load-actions"><button className="secondary-button" onClick={() => setKind('proveedor')}>Nuevo proveedor</button><button className="secondary-button" onClick={() => setKind('estacion')}>Nueva estación</button><button className="secondary-button" onClick={() => setKind('tanque')} disabled={catalogs.stations.length === 0 || catalogs.fuelTypes.length === 0}>Nuevo tanque</button></div>
     <p>{catalogs.suppliers.length} proveedores · {catalogs.stations.length} estaciones · {tanks.length} tanques</p>
-    {kind && <Modal title={`Nuevo ${kind}`} subtitle="El registro quedará disponible en la API." onClose={() => setKind(null)}><form className="form-grid" onSubmit={(event) => void save(event)}>
+    {kind && <Modal title={`Nuevo ${kind}`} subtitle="El registro quedará disponible en el sistema." onClose={() => setKind(null)}><form className="form-grid" onSubmit={(event) => void save(event)}>
       {kind === 'proveedor' && <><label>Nombre<input name="name" required /></label><label>RNC<input name="rnc" required /></label><label>Teléfono<input name="phone" /></label><label>Correo<input name="email" type="email" /></label></>}
       {kind === 'estacion' && <><label>Nombre<input name="name" required /></label><label>Ubicación<input name="location" required /></label></>}
       {kind === 'tanque' && <><label>Código<input name="code" required /></label><label>Nombre<input name="name" required /></label><label>Estación<select name="station" required defaultValue=""><option value="">Selecciona</option>{catalogs.stations.map((station) => <option key={station.id} value={station.id}>{station.name}</option>)}</select></label><label>Combustible<select name="fuel" required defaultValue=""><option value="">Selecciona</option>{catalogs.fuelTypes.map((fuel) => <option key={fuel.id} value={fuel.id}>{fuel.name}</option>)}</select></label><label>Capacidad (gal)<input name="capacity" type="number" min="0.1" step="0.1" required /></label><label>Nivel crítico (gal)<input name="critical" type="number" min="0" step="0.1" required /></label></>}
