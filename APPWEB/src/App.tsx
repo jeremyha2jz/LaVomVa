@@ -41,7 +41,7 @@ export default function App() {
     administracion: <Admin />,
   }[page]
   if (!session) return <Login />
-  if (loading) return <div className="load-screen"><span className="login-mark">L</span><h1>Cargando LaVomVa</h1><p>Conectando con la API…</p></div>
+  if (loading) return <div className="load-screen"><span className="login-mark">L</span><h1>Cargando LaVomVa</h1><p>Cargando…</p></div>
   if (error) return <div className="load-screen"><h1>No se pudo conectar</h1><p>{error}</p><div className="load-actions"><button className="primary-button" onClick={() => void refresh().catch(() => {})}>Reintentar</button><button className="secondary-button" onClick={logout}>Cerrar sesión</button></div></div>
   return <AppShell page={page} onNavigate={navigate}>{content}</AppShell>
 }

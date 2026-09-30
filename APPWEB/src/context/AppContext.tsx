@@ -67,7 +67,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setMovements(data.movements)
       setError(null)
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : 'No se pudo cargar la API.'
+      const message = cause instanceof Error ? cause.message : 'No se pudieron cargar los datos.'
       setError(message)
       throw cause
     } finally { setLoading(false) }
