@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# psql en Windows usa la codificación de la consola; los mensajes de los triggers deben cargarse en UTF-8.
+export PGCLIENTENCODING=UTF8
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 

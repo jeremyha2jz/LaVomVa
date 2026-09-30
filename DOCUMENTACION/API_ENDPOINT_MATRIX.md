@@ -4,9 +4,9 @@ Inventario generado contra los 15 controladores y contrastado en pruebas con `IA
 
 ## Resumen
 
-- Rutas MVC de negocio: **71**.
+- Rutas MVC de negocio: **72**.
 - Públicas por diseño: **6** (`POST /api/login`, `POST /api/login/registro`, `POST /api/login/inicializar-admin`, `POST /api/login/refresh`, `POST /api/login/logout`, `GET /api/tickets/public/qr`). Refresh y logout solo aceptan credenciales de sesión en el body y responden sin caché.
-- Protegidas: **65**; de ellas, **46** tienen roles restringidos y **19** admiten a cualquiera de los seis roles autenticados.
+- Protegidas: **66**; de ellas, **46** tienen roles restringidos y **20** admiten a cualquiera de los seis roles autenticados.
 - SeñalR: `/hubs/inventory` y su transporte `POST /hubs/inventory/negotiate` son rutas técnicas protegidas por `[Authorize]`; no son acciones REST MVC.
 - Swagger/UI y `/swagger/v1/swagger.json` solo se registran en `Development`; `Testing` no registra health checks ni otras rutas técnicas HTTP.
 - Roles sembrados por `BASEDATOS/schema/DATABASE_FINALLL`: `ADMINISTRADOR`, `SUPERVISOR`, `DESPACHADOR`, `SOLICITANTE`, `AUDITOR`, `CONSULTA`.
@@ -79,6 +79,7 @@ Inventario generado contra los 15 controladores y contrastado en pruebas con `IA
 | GET | `/api/tickets/public/qr` | TicketDelivery / PublicQr | Pública; QR firmado limitado | query `token` | `image/png`, `Cache-Control: no-store`; 200, 404 | RF-07, RF-09 |
 | GET | `/api/tickets` | Tickets / Listar | * | ninguno | listado sin token/firma QR; 200 | RF-06 |
 | GET | `/api/tickets/{id}` | Tickets / Obtener | * | GUID | detalle sin token/firma QR; 200, 404 | RF-06 |
+| GET | `/api/tickets/{id}/despacho` | Tickets / ObtenerDespacho | * | GUID | despacho registrado del ticket (galones, operador, tanque, estación); 200, 404 | RF-13 |
 | POST | `/api/tickets/{id}/anular` | Tickets / Anular | ADMINISTRADOR, SUPERVISOR | `AnularTicketRequest` | estado anulado; 200, 400, 404, 409 | RF-10 |
 | GET | `/api/tickets/{id}/qr` | Tickets / ObtenerQr | ADMINISTRADOR, SUPERVISOR | GUID | `image/png`; 200, 404 | RF-07 |
 | POST | `/api/tickets` | Tickets / Crear | ADMINISTRADOR, SUPERVISOR | `CrearTicketRequest` | recibo sin secreto QR; 201, 404, 409, 500 | RF-06 |
@@ -92,7 +93,7 @@ Inventario generado contra los 15 controladores y contrastado en pruebas con `IA
 
 ## Matriz compacta por política
 
-Cada una de las 65 rutas protegidas se prueba sin credencial y contra los seis roles (390 combinaciones de rol/ruta, más 65 comprobaciones anónimas). La prueba parametrizada comprueba que la lista de rutas real coincide exactamente con este inventario, compara roles esperados con `IAuthorizeData`/`IAllowAnonymous`, y llama a cada ruta protegida con token vigente para comprobar 401/403 y el paso por autorización. Los 19 endpoints `*` están marcados como herencia de política fallback autenticada; su autorización se establece en `Program.cs`.
+Cada una de las 66 rutas protegidas se prueba sin credencial y contra los seis roles (396 combinaciones de rol/ruta, más 66 comprobaciones anónimas). La prueba parametrizada comprueba que la lista de rutas real coincide exactamente con este inventario, compara roles esperados con `IAuthorizeData`/`IAllowAnonymous`, y llama a cada ruta protegida con token vigente para comprobar 401/403 y el paso por autorización. Los 19 endpoints `*` están marcados como herencia de política fallback autenticada; su autorización se establece en `Program.cs`.
 
 | Ámbito | Rutas | Roles que pasan | Otros roles |
 |---|---:|---|---|
@@ -121,7 +122,7 @@ Las operaciones históricas de auditoría y cierre solo exponen GET/POST de crea
 |---|---|---|
 | `/hubs/inventory` | `[Authorize]`; JWT en cabecera o query `access_token` solo para este prefijo | Negotiate anónimo -> 401; token inválido -> 401; token vigente -> conexión autorizada. Cubierto también por `ApiCoverageTests.Hub_de_inventario_exige_jwt_valido_en_negotiate` y conexión SignalR real. |
 | `/swagger`, `/swagger/index.html`, `/swagger/v1/swagger.json` | Solo se mapean en Development | Generación se valida con OpenAPI en pruebas de matriz; Testing no expone Swagger HTTP. |
-| `/hubs/inventory/negotiate` | Negotiate de SignalR; no acción MVC ni API REST | Se incluye en la verificación del Hub, no en las 71 rutas MVC. |
+| `/hubs/inventory/negotiate` | Negotiate de SignalR; no acción MVC ni API REST | Se incluye en la verificación del Hub, no en las 72 rutas MVC. |
 
 ## Pruebas contractuales relacionadas
 
