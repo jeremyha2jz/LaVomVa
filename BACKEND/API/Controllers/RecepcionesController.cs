@@ -13,6 +13,8 @@ namespace TicketsCombustible.Api.Controllers;
 [Route("api/recepciones")]
 public class RecepcionesController(TicketsCombustibleDbContext db, IAuditoriaService auditoria, NotificacionService notifications, IInventoryRealtimePublisher realtime) : ControllerBase
 {
+    private const string FacturaDuplicada = "Esta factura ya fue registrada para el proveedor.";
+
     [HttpGet("proveedores")]
     public async Task<IActionResult> Proveedores() => Ok(await db.Proveedores.Where(x => x.Activo).OrderBy(x => x.Nombre).ToListAsync());
 
@@ -35,8 +37,12 @@ public class RecepcionesController(TicketsCombustibleDbContext db, IAuditoriaSer
     public async Task<IActionResult> Crear(CrearRecepcionRequest request)
     {
         if (!long.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var actorId)) return Unauthorized();
+        var numeroFactura = request.NumeroFactura?.Trim();
+        if (string.IsNullOrEmpty(numeroFactura)) return BadRequest(new ApiErrorResponse("El número de factura es obligatorio."));
+        if (numeroFactura.Length > 60) return BadRequest(new ApiErrorResponse("El número de factura no puede exceder 60 caracteres."));
         if (request.Detalles.Count == 0) return BadRequest(new ApiErrorResponse("Debe incluir al menos un tanque."));
         if (!await db.Proveedores.AnyAsync(x => x.Id == request.ProveedorId && x.Activo)) return BadRequest(new ApiErrorResponse("Proveedor inválido."));
+        if (await db.Recepciones.AnyAsync(x => x.ProveedorId == request.ProveedorId && x.NumeroFactura == numeroFactura)) return Conflict(new ApiErrorResponse(FacturaDuplicada));
         if (!await db.Usuarios.AnyAsync(x => x.Id == actorId && x.Activo)) return BadRequest(new ApiErrorResponse("Usuario receptor inválido."));
         if (request.Detalles.Any(x => x.VolumenRecibidoGalones <= 0)) return BadRequest(new ApiErrorResponse("Cada volumen debe ser mayor que cero."));
         if (request.Detalles.GroupBy(x => x.TanqueId).Any(x => x.Count() > 1)) return BadRequest(new ApiErrorResponse("No repita un tanque en la misma recepción."));
@@ -45,7 +51,7 @@ public class RecepcionesController(TicketsCombustibleDbContext db, IAuditoriaSer
         await using var transaction = await db.Database.BeginTransactionAsync();
         foreach (var tankId in request.Detalles.Select(x => x.TanqueId).Order())
             _ = await db.Tanques.FromSqlInterpolated($"SELECT * FROM tanques WHERE id_tanque={tankId} FOR UPDATE").AsNoTracking().SingleAsync();
-        var recepcion = new RecepcionCombustible { ProveedorId = request.ProveedorId, NumeroFactura = request.NumeroFactura, FechaRecepcion = DateTime.SpecifyKind(request.FechaRecepcion, DateTimeKind.Unspecified), UsuarioReceptorId = actorId, Observaciones = request.Observaciones };
+        var recepcion = new RecepcionCombustible { ProveedorId = request.ProveedorId, NumeroFactura = numeroFactura, FechaRecepcion = DateTime.SpecifyKind(request.FechaRecepcion, DateTimeKind.Unspecified), UsuarioReceptorId = actorId, Observaciones = request.Observaciones };
         List<long> movementIds = [];
         try
         {
@@ -70,6 +76,10 @@ public class RecepcionesController(TicketsCombustibleDbContext db, IAuditoriaSer
             (pg.MessageText.StartsWith("Inventario insuficiente", StringComparison.Ordinal) || pg.MessageText.StartsWith("El movimiento excede la capacidad", StringComparison.Ordinal) || pg.MessageText.StartsWith("El día operacional ya está cerrado", StringComparison.Ordinal)))
         {
             return Conflict(new ApiErrorResponse(pg.MessageText));
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: "uq_recepcion_proveedor_factura" })
+        {
+            return Conflict(new ApiErrorResponse(FacturaDuplicada));
         }
         foreach (var movementId in movementIds) await realtime.PublishMovementAsync(movementId);
         return Created($"api/recepciones/{recepcion.Id}", new { recepcion, request.Detalles });

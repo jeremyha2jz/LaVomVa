@@ -12,7 +12,7 @@ Backend en .NET 8, Entity Framework Core y PostgreSQL.
 
 ## Programaciones de solicitudes (RF-11)
 
-Después de cargar `BASEDATOS/schema/DATABASE_FINALLL`, aplica en orden las migraciones SQL `001` a `007` de `BASEDATOS/migrations/`. La migración `005_solicitud_scheduling.sql` agrega plantillas e historial de programaciones; `006_persistent_notifications.sql` completa la tabla existente `notificaciones` y añade el estado de episodios de inventario crítico; `007_auth_sessions.sql` agrega sesiones de autenticación.
+Después de cargar `BASEDATOS/schema/DATABASE_FINALLL`, aplica en orden las migraciones SQL `001` a `008` de `BASEDATOS/migrations/`. La migración `005_solicitud_scheduling.sql` agrega plantillas e historial de programaciones; `006_persistent_notifications.sql` completa la tabla existente `notificaciones` y añade el estado de episodios de inventario crítico; `007_auth_sessions.sql` agrega sesiones de autenticación; `008_recepcion_factura_unica.sql` impide registrar dos veces la misma factura de un proveedor.
 
 `POST /api/programaciones`, `GET /api/programaciones`, `GET /api/programaciones/{id}`, `PUT /api/programaciones/{id}`, `POST /api/programaciones/{id}/activar`, `POST /api/programaciones/{id}/desactivar` y `GET /api/programaciones/{id}/ejecuciones` requieren el rol ADMINISTRADOR o SUPERVISOR. La web administra estas programaciones desde Solicitudes. El flujo manual existente se mantiene en `POST /api/solicitudes`; ese endpoint solo acepta `MANUAL`.
 

@@ -266,7 +266,9 @@ CREATE TABLE recepciones_combustible (
     fecha_recepcion         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     id_usuario_receptor     BIGINT NOT NULL REFERENCES usuarios(id_usuario),
     observaciones            TEXT,
-    creado_en                TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    creado_en                TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_recepcion_factura_no_vacia CHECK (btrim(numero_factura) <> ''),
+    CONSTRAINT uq_recepcion_proveedor_factura UNIQUE (id_proveedor, numero_factura)
 );
 
 -- Una recepción/factura puede abastecer más de un tanque.

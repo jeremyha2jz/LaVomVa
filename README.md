@@ -175,7 +175,7 @@ En `appsettings.Development.json` reemplaza:
 
 El archivo está excluido del control de versiones. También se pueden usar variables de entorno: `ConnectionStrings__TicketsCombustible`, `Jwt__Key` y `Qr__SigningSecret`.
 
-Aplica también la migración `BASEDATOS/migrations/007_auth_sessions.sql` después de cargar `BASEDATOS/schema/DATABASE_FINALLL`; crea la tabla de sesiones y sus índices únicos/de familia.
+Aplica también las migraciones `BASEDATOS/migrations/007_auth_sessions.sql` y `008_recepcion_factura_unica.sql` después de cargar `BASEDATOS/schema/DATABASE_FINALLL`; crean la tabla de sesiones y la restricción de factura única por proveedor.
 
 ### 4. Arrancar la API
 
