@@ -118,7 +118,7 @@ public sealed class ApiEndpointMatrixTests(QaFixture qa)
         }).ToArray();
 
         Assert.Equal(registered.Length, registered.Select(x => x.Key).Distinct(StringComparer.OrdinalIgnoreCase).Count());
-        Assert.Equal(71, registered.Length);
+        Assert.Equal(72, registered.Length);
         Assert.Equal(Matrix.Keys.Order(StringComparer.OrdinalIgnoreCase), registered.Select(x => x.Key).Order(StringComparer.OrdinalIgnoreCase));
 
         foreach (var item in registered)
@@ -263,7 +263,7 @@ public sealed class ApiEndpointMatrixTests(QaFixture qa)
         Group("POST", AdminSupervisor, "api/tickets/{id}/enviar", "api/tickets/{id}/reenviar", "api/tickets/{id}/envios/{envioId}/reconciliar");
         Group("GET", AdminSupervisor, "api/tickets/{id}/envios");
         Group("GET", [], "api/tickets/public/qr");
-        Group("GET", null, "api/tickets", "api/tickets/{id}");
+        Group("GET", null, "api/tickets", "api/tickets/{id}", "api/tickets/{id}/despacho");
         Group("POST", AdminSupervisor, "api/tickets/{id}/anular", "api/tickets");
         Group("GET", AdminSupervisor, "api/tickets/{id}/qr");
         Group("POST", null, "api/tickets/validar");

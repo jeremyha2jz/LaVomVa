@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# psql en Windows usa la codificación de la consola; los mensajes de los triggers deben cargarse en UTF-8.
+export PGCLIENTENCODING=UTF8
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
@@ -37,6 +40,7 @@ qa_port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0))
 "$pg_bindir/psql" -h 127.0.0.1 -p "$qa_port" -U qa_runner -d lavomva_test -v ON_ERROR_STOP=1 -f BASEDATOS/migrations/005_solicitud_scheduling.sql >/dev/null
 "$pg_bindir/psql" -h 127.0.0.1 -p "$qa_port" -U qa_runner -d lavomva_test -v ON_ERROR_STOP=1 -f BASEDATOS/migrations/006_persistent_notifications.sql >/dev/null
 "$pg_bindir/psql" -h 127.0.0.1 -p "$qa_port" -U qa_runner -d lavomva_test -v ON_ERROR_STOP=1 -f BASEDATOS/migrations/007_auth_sessions.sql >/dev/null
+"$pg_bindir/psql" -h 127.0.0.1 -p "$qa_port" -U qa_runner -d lavomva_test -v ON_ERROR_STOP=1 -f BASEDATOS/migrations/008_recepcion_factura_unica.sql >/dev/null
 export QA_TEST_CONNECTION="Host=127.0.0.1;Port=$qa_port;Database=lavomva_test;Username=qa_runner;Pooling=false"
 
 echo "== Web unit tests =="

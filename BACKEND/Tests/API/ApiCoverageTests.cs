@@ -844,6 +844,33 @@ public sealed class ApiCoverageTests(QaFixture qa)
     }
 
     [Fact]
+    public async Task Recepciones_exigen_factura_y_no_la_repiten_por_proveedor()
+    {
+        await qa.ResetAsync();
+        var admin = await LoginAsync("qa.admin.invoice", "ADMINISTRADOR");
+        var catalog = await SeedCatalogAsync(stock: 0m);
+        Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", admin.Token);
+        async Task<long> Supplier(string rnc) => (await (await Client.PostAsJsonAsync("api/recepciones/proveedores", new { nombre = $"Proveedor {rnc}", rnc })).Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt64();
+        var supplierA = await Supplier("QA-INV-A");
+        var supplierB = await Supplier("QA-INV-B");
+        object Reception(long supplierId, string? invoice) => new { proveedorId = supplierId, numeroFactura = invoice, fechaRecepcion = DateTime.UtcNow, detalles = new[] { new { tanqueId = catalog.TankId, volumenRecibidoGalones = 5m } } };
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await Client.PostAsJsonAsync("api/recepciones", Reception(supplierA, "   "))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Client.PostAsJsonAsync("api/recepciones", Reception(supplierA, new string('9', 61)))).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await Client.PostAsJsonAsync("api/recepciones", Reception(supplierA, " B0100000001 "))).StatusCode);
+        var duplicate = await Client.PostAsJsonAsync("api/recepciones", Reception(supplierA, "B0100000001"));
+        Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
+        Assert.Contains("ya fue registrada", await duplicate.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.Created, (await Client.PostAsJsonAsync("api/recepciones", Reception(supplierB, "B0100000001"))).StatusCode);
+
+        await using var scope = qa.Factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<TicketsCombustibleDbContext>();
+        Assert.Equal(["B0100000001", "B0100000001"], await db.Recepciones.OrderBy(x => x.Id).Select(x => x.NumeroFactura).ToListAsync());
+        Assert.Equal(10m, await db.Tanques.Where(x => x.Id == catalog.TankId).Select(x => x.ExistenciaActualGalones).SingleAsync());
+        Client.DefaultRequestHeaders.Authorization = null;
+    }
+
+    [Fact]
     public async Task SignalR_publica_ajustes_mermas_y_solo_transiciones_reales_de_nivel_critico()
     {
         await qa.ResetAsync();
