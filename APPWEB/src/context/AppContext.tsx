@@ -1,7 +1,9 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { api, loadLiveData, login as apiLogin, logout as apiLogout, register as apiRegister, savedSession } from '../services/api'
 import type { Catalogs, FuelRequest, InventoryMovement, Session, Tank, Ticket, ToastMessage } from '../types'
-import { applyInventoryUpdate, applyMovementCreated, initialTankMovementIds, isNewerTankMovement, createInventoryRealtimeClient } from '../services/inventoryRealtime'
+import { applyInventoryUpdate, initialTankMovementIds, type InventoryUpdatedEvent } from '../services/inventoryRealtime'
+import { useInventoryRealtimeSync } from './useInventoryRealtimeSync'
+import { receptionPayload, requestPayload } from './requestPayloads'
 
 export type NewRequest = Pick<FuelRequest, 'employee' | 'employeeCode' | 'vehicle' | 'department' | 'fuelType' | 'requestedGallons' | 'expiresAt' | 'kind' | 'reason'> & {
   employeeId?: number; vehicleId?: number; departmentId?: number; fuelTypeId?: number
@@ -46,7 +48,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
   const [realtimeRevision, setRealtimeRevision] = useState(0)
   const lastMovementByTank = useRef(new Map<number, number>())
-  const liveInventoryEvents = useRef(new Map<number, { movementId: number; event: import('../services/inventoryRealtime').InventoryUpdatedEvent }>())
+  const liveInventoryEvents = useRef(new Map<number, { movementId: number; event: InventoryUpdatedEvent }>())
 
   async function refresh() {
     setLoading(true)
@@ -81,30 +83,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [session?.token])
 
-  useEffect(() => {
-    if (!session) return
-    const realtime = createInventoryRealtimeClient({
-      getToken: () => savedSession()?.token ?? session.token,
-      synchronize: () => refresh().catch(() => {}),
-      onReconnected: () => setRealtimeRevision((revision) => revision + 1),
-      onInventoryUpdated: (event) => {
-        if (!isNewerTankMovement(lastMovementByTank.current, event.tankId, event.movementId)) return
-        liveInventoryEvents.current.set(event.tankId, { movementId: event.movementId, event })
-        setTanks((current) => applyInventoryUpdate(current, event))
-      },
-      onMovementCreated: (event) => {
-        setMovements((current) => applyMovementCreated(current, tanks, event))
-      },
-      onCriticalInventoryChanged: (event) => {
-        notify(
-          event.critical ? 'Inventario en nivel crítico' : 'Inventario recuperado',
-          `Tanque #${event.tankId}: ${event.currentQuantity.toLocaleString('es-DO')} gal.`,
-          event.critical ? 'warning' : 'success',
-        )
-      },
-    })
-    return () => { void realtime.stop() }
-  }, [session?.token])
+  useInventoryRealtimeSync({ session, refresh, tanks, notify, setTanks, setMovements, setRealtimeRevision, lastMovementByTank, liveInventoryEvents })
 
   function notify(title: string, description: string, tone: ToastMessage['tone'] = 'success') {
     const id = Date.now() + Math.random()
@@ -124,7 +103,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   async function addRequest(item: NewRequest) {
     if (!item.employeeId || !item.vehicleId || !item.departmentId || !item.fuelTypeId) throw new Error('Selecciona datos válidos de los catálogos.')
-    await api.createRequest({ empleadoId: item.employeeId, vehiculoId: item.vehicleId, departamentoId: item.departmentId, tipoCombustibleId: item.fuelTypeId, cantidadSolicitadaGalones: item.requestedGallons, fechaVencimiento: item.expiresAt, usuarioCreadorId: session?.id, tipoSolicitud: item.kind, motivo: item.reason })
+    await api.createRequest(requestPayload(item, session?.id))
     await refresh()
     notify('Solicitud registrada', 'La solicitud quedó pendiente de aprobación.')
   }
@@ -152,7 +131,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const tank = tanks.find((item) => item.id === tankId)
     if (!tank || !Number.isFinite(gallons) || gallons <= 0 || tank.stock + gallons > tank.capacity) return false
     if (!session || !details.supplierId) throw new Error('Selecciona un proveedor e inicia sesión.')
-    await api.receive({ proveedorId: details.supplierId, numeroFactura: invoice, fechaRecepcion: details.date || new Date().toISOString(), usuarioReceptorId: session.id, observaciones: details.notes, detalles: [{ tanqueId: tankId, volumenRecibidoGalones: gallons, costoUnitario: null }] })
+    await api.receive(receptionPayload(tankId, gallons, invoice, details, session.id))
     await refresh()
     notify('Recepción registrada', 'El inventario del tanque fue actualizado.')
     return true

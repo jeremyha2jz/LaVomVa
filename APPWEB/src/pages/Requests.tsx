@@ -1,12 +1,13 @@
 import { Check, ChevronRight, Filter, Plus, X } from 'lucide-react'
-import { useMemo, useState, type FormEvent } from 'react'
-import { useApp, type NewRequest } from '../context/AppContext'
+import { useMemo, useState } from 'react'
+import { useApp } from '../context/AppContext'
+import { NewRequestModal } from './NewRequestModal'
 import { EmptyState, formatDate, Modal, PageHeader, SearchBox, StatusBadge } from '../components/ui'
 import type { FuelRequest, RequestStatus } from '../types'
 import { ScheduleManager } from '../components/ScheduleManager'
 
 export function Requests() {
-  const { requests, catalogs, addRequest, resolveRequest, notify, session } = useApp()
+  const { requests, addRequest, resolveRequest, notify, session } = useApp()
   const canRequest = ['ADMINISTRADOR', 'SUPERVISOR', 'SOLICITANTE'].includes(session?.role || '')
   const canApprove = ['ADMINISTRADOR', 'SUPERVISOR'].includes(session?.role || '')
   const canManageSchedules = canApprove
@@ -42,33 +43,4 @@ export function Requests() {
       {canApprove && selected.status === 'PENDIENTE' && <div className="approval-box"><label>Galones autorizados<input type="number" min="0.1" max={selected.requestedGallons} step="0.1" value={authorized} onChange={(event) => setAuthorized(Number(event.target.value))} /></label><div><button className="danger-button" disabled={busy} onClick={() => void decide('reject')}><X size={17} /> Rechazar</button><button className="primary-button" disabled={busy || authorized <= 0 || authorized > selected.requestedGallons} onClick={() => void decide('approve')}><Check size={17} /> Aprobar y emitir ticket</button></div></div>}
     </Modal>}
   </div>
-}
-
-function NewRequestModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (data: NewRequest) => Promise<void> }) {
-  const { catalogs, notify } = useApp()
-  const [busy, setBusy] = useState(false)
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const data = new FormData(event.currentTarget)
-    const employee = catalogs.employees.find((item) => item.id === Number(data.get('employee')))
-    const vehicle = catalogs.vehicles.find((item) => item.id === Number(data.get('vehicle')))
-    const department = catalogs.departments.find((item) => item.id === Number(data.get('department')))
-    const fuelType = catalogs.fuelTypes.find((item) => item.id === Number(data.get('fuelType')))
-    if (!employee || !vehicle || !department || !fuelType) { notify('Datos incompletos', 'Selecciona valores válidos en todos los catálogos.', 'error'); return }
-    setBusy(true)
-    try {
-      await onSubmit({ employeeId: employee.id, employee: employee.name, employeeCode: employee.code, vehicleId: vehicle.id, vehicle: `${vehicle.plate} · ${vehicle.brand} ${vehicle.model}`, departmentId: department.id, department: department.name, fuelTypeId: fuelType.id, fuelType: fuelType.name, requestedGallons: Number(data.get('gallons')), expiresAt: new Date(String(data.get('expiresAt'))).toISOString(), kind: 'MANUAL', reason: String(data.get('reason')) })
-    } catch (cause) { notify('No se pudo registrar', cause instanceof Error ? cause.message : 'Ocurrió un error inesperado.', 'error') }
-    finally { setBusy(false) }
-  }
-  return <Modal title="Nueva solicitud" subtitle="Completa los datos requeridos para solicitar combustible." onClose={onClose} size="lg"><form className="form-grid" onSubmit={(event) => void submit(event)}>
-    <label>Empleado<select name="employee" required defaultValue=""><option value="">Selecciona un empleado</option>{catalogs.employees.map((item) => <option key={item.id} value={item.id}>{item.code} · {item.name}</option>)}</select></label>
-    <label>Vehículo<select name="vehicle" required defaultValue=""><option value="">Selecciona un vehículo</option>{catalogs.vehicles.map((item) => <option key={item.id} value={item.id}>{item.plate} · {item.brand} {item.model}</option>)}</select></label>
-    <label>Departamento<select name="department" required defaultValue=""><option value="">Selecciona un departamento</option>{catalogs.departments.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-    <label>Tipo de combustible<select name="fuelType" required defaultValue=""><option value="">Selecciona un combustible</option>{catalogs.fuelTypes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-    <label>Galones solicitados<input name="gallons" type="number" min="0.1" step="0.1" required /></label>
-    <label>Fecha de vencimiento<input name="expiresAt" type="datetime-local" min={new Date().toISOString().slice(0, 16)} required /></label>
-    <label className="form-wide">Motivo<textarea name="reason" rows={3} required placeholder="Describe el uso previsto del combustible" /></label>
-    <div className="form-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancelar</button><button className="primary-button" disabled={busy} type="submit">{busy ? 'Guardando…' : 'Registrar solicitud'}</button></div>
-  </form></Modal>
 }

@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { Activity, Bell, Boxes, CalendarCheck, ChevronDown, ClipboardList, FileBarChart, Fuel, Gauge, LayoutDashboard, Menu, QrCode, Search, Settings, ShieldCheck, TicketCheck, Users, X } from 'lucide-react'
+import { useEffect, useState, type ReactNode } from 'react'
+import { Activity, Bell, CalendarCheck, ChevronDown, ClipboardList, FileBarChart, Fuel, Gauge, LayoutDashboard, Menu, QrCode, Search, Settings, ShieldCheck, TicketCheck, Users, X } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { listNotifications, markAllNotificationsRead, markNotificationRead, unreadNotificationCount, type AppNotification } from '../services/api'
+import { useNotifications } from './useNotifications'
+import { NotificationPanel } from './NotificationPanel'
 
 export type PageKey = 'dashboard' | 'solicitudes' | 'tickets' | 'despacho' | 'inventario' | 'operaciones' | 'cierres' | 'catalogos' | 'reportes' | 'administracion'
 
@@ -28,55 +29,15 @@ function Logo() { return <div className="brand"><div className="brand-mark"><img
 
 export function AppShell({ page, onNavigate, children }: { page: PageKey; onNavigate: (page: PageKey) => void; children: ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [notificationsOpen, setNotificationsOpen] = useState(false)
-  const [notifications, setNotifications] = useState<AppNotification[]>([])
-  const [unreadCount, setUnreadCount] = useState(0)
-  const [notificationError, setNotificationError] = useState('')
-  const { toasts, removeToast, tanks, tickets, requests, session, logout, realtimeRevision } = useApp()
+  const { toasts, removeToast, requests, session, logout, realtimeRevision } = useApp()
   const profileName = session?.name || ''
   const profileRole = session?.role || ''
   const initials = profileName.split(' ').map((part) => part[0]).slice(0, 2).join('').toUpperCase()
   const pending = requests.filter((request) => request.status === 'PENDIENTE').length
 
-  const syncNotifications = useCallback(async () => {
-    if (!session) { setNotifications([]); setUnreadCount(0); return }
-    try {
-      const [page, count] = await Promise.all([listNotifications(), unreadNotificationCount()])
-      setNotifications((current) => {
-        const byId = new Map(current.map((item) => [item.id, item]))
-        page.items.forEach((item) => byId.set(item.id, item))
-        return [...byId.values()].sort((a, b) => Date.parse(b.fechaCreacion) - Date.parse(a.fechaCreacion)).slice(0, 30)
-      })
-      setUnreadCount(count.cantidad)
-      setNotificationError('')
-    } catch (error) { setNotificationError(error instanceof Error ? error.message : 'No se pudieron cargar las notificaciones.') }
-  }, [session])
-
   useEffect(() => setSidebarOpen(false), [page])
-  useEffect(() => {
-    if (!session) return
-    void syncNotifications()
-    const timer = window.setInterval(() => void syncNotifications(), 30_000)
-    const onFocus = () => void syncNotifications()
-    window.addEventListener('focus', onFocus)
-    return () => { window.clearInterval(timer); window.removeEventListener('focus', onFocus) }
-  }, [session, syncNotifications])
-  useEffect(() => {
-    if (realtimeRevision > 0) void syncNotifications()
-  }, [realtimeRevision, syncNotifications])
   const navigate = (target: PageKey) => { window.location.hash = target; onNavigate(target) }
-  const openNotification = async (item: AppNotification) => {
-    if (!item.leida) {
-      try { await markNotificationRead(item.id); setNotifications((current) => current.map((x) => x.id === item.id ? { ...x, leida: true, fechaLectura: new Date().toISOString() } : x)); setUnreadCount((n) => Math.max(0, n - 1)) }
-      catch (error) { setNotificationError(error instanceof Error ? error.message : 'No se pudo marcar como leída.'); return }
-    }
-    const target: PageKey = item.tipo === 'INVENTARIO_BAJO' ? 'inventario' : item.tipo === 'AJUSTE_INVENTARIO' ? 'operaciones' : 'tickets'
-    navigate(target); setNotificationsOpen(false)
-  }
-  const markAllRead = async () => {
-    try { await markAllNotificationsRead(); setNotifications((current) => current.map((item) => ({ ...item, leida: true, fechaLectura: new Date().toISOString() }))); setUnreadCount(0); setNotificationError('') }
-    catch (error) { setNotificationError(error instanceof Error ? error.message : 'No se pudieron marcar como leídas.') }
-  }
+  const { notificationsOpen, setNotificationsOpen, notifications, unreadCount, notificationError, syncNotifications, openNotification, markAllRead } = useNotifications(session, realtimeRevision, navigate)
 
   return <div className="app-shell">
     <aside className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
@@ -88,7 +49,7 @@ export function AppShell({ page, onNavigate, children }: { page: PageKey; onNavi
     {sidebarOpen && <button className="sidebar-overlay" onClick={() => setSidebarOpen(false)} aria-label="Cerrar menú" />}
     <section className="main-column">
       <header className="topbar"><button className="icon-button menu-button" onClick={() => setSidebarOpen(true)}><Menu size={21} /></button><div className="topbar-context"><span>Plataforma</span><strong>LaVomVa</strong></div><button className="topbar-search topbar-search-button" onClick={() => navigate('tickets')}><Search size={17} /><span>Buscar tickets</span></button><div className="topbar-actions"><button aria-label={`Notificaciones${unreadCount ? `, ${unreadCount} sin leer` : ''}`} aria-expanded={notificationsOpen} className="icon-button notification-button" onClick={() => { setNotificationsOpen(!notificationsOpen); void syncNotifications() }}><Bell size={20} />{unreadCount > 0 && <b className="notification-badge">{unreadCount > 99 ? '99+' : unreadCount}</b>}</button><div className="topbar-avatar">{initials}</div></div>
-        {notificationsOpen && <div className="notifications-panel" role="region" aria-label="Notificaciones"><header><strong>Notificaciones</strong><span>{unreadCount} sin leer</span></header>{unreadCount > 0 && <button className="notification-mark-all" onClick={() => void markAllRead()}>Marcar todas como leídas</button>}{notificationError && <p className="notification-error" role="alert">{notificationError}</p>}{notifications.length === 0 && !notificationError && <p className="notification-empty">No tienes notificaciones.</p>}{notifications.map((item) => <button className={`notification-item ${item.leida ? 'read' : 'unread'}`} key={item.id} onClick={() => void openNotification(item)}><span className={`notice-icon ${item.tipo === 'INVENTARIO_BAJO' ? 'notice-red' : 'notice-amber'}`}>{item.tipo === 'INVENTARIO_BAJO' ? <Boxes size={18} /> : <TicketCheck size={18} />}</span><span><strong>{item.titulo}</strong><small>{item.mensaje}</small><small>{new Date(item.fechaCreacion).toLocaleString()}</small></span>{!item.leida && <i className="notification-unread-dot" />}</button>)}</div>}
+        {notificationsOpen && <NotificationPanel notifications={notifications} unreadCount={unreadCount} error={notificationError} onOpen={(item) => void openNotification(item)} onMarkAllRead={() => void markAllRead()} />}
       </header>
       <main>{children}</main>
     </section>

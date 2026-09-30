@@ -1,16 +1,14 @@
-import { Download, FileSpreadsheet, FileText, Fuel, RefreshCw, TrendingUp } from 'lucide-react'
+import { Download, FileSpreadsheet, FileText, Fuel, TrendingUp } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { useApp } from '../context/AppContext'
 import { downloadBlob, EmptyState, PageHeader } from '../components/ui'
-import { exportReport, getReport, type ReportFilters, type ReportFormat, type ReportResult, type ReportType } from '../services/api'
+import { exportReport, getReport, type ReportFilters, type ReportFormat, type ReportResult } from '../services/api'
+import { initialReportDraft, ReportFilters as ReportFiltersPanel } from './ReportFilters'
 
 const PAGE_SIZE = 50
 const formatNumber = (value: number) => Number(value || 0).toLocaleString('es-DO', { maximumFractionDigits: 2 })
 
 export function Reports() {
-  const { catalogs } = useApp()
-  const initialDraft = { tipo: 'consumo' as ReportType, desde: '', hasta: '', departamentoId: '', combustibleId: '', empleadoId: '', vehiculoId: '', estado: '', estacionId: '' }
-  const [draft, setDraft] = useState(initialDraft)
+  const [draft, setDraft] = useState(initialReportDraft)
   const [filters, setFilters] = useState<ReportFilters>({ tipo: 'consumo', pagina: 1, tamanoPagina: PAGE_SIZE })
   const [page, setPage] = useState(1)
   const [report, setReport] = useState<ReportResult | null>(null)
@@ -41,7 +39,7 @@ export function Reports() {
   }
 
   const clearFilters = () => {
-    setDraft({ ...initialDraft })
+    setDraft({ ...initialReportDraft })
     setPage(1)
     setFilters({ tipo: 'consumo', pagina: 1, tamanoPagina: PAGE_SIZE })
   }
@@ -67,18 +65,7 @@ export function Reports() {
 
   return <div className="page">
     <PageHeader eyebrow="Análisis" title="Reportes gerenciales" description="Consulta datos consolidados y expórtalos con los mismos filtros." actions={<div className="header-actions"><button className="secondary-button" disabled={loading || exporting !== null} onClick={() => void download('csv')}><Download size={16} /> CSV</button><button className="secondary-button" disabled={loading || exporting !== null} onClick={() => void download('xlsx')}><FileSpreadsheet size={16} /> Excel</button><button className="primary-button" disabled={loading || exporting !== null} onClick={() => void download('pdf')}><FileText size={16} /> PDF</button></div>} />
-    <section className="report-filters panel">
-      <label>Reporte<select aria-label="Reporte" value={draft.tipo} onChange={(event) => setDraft({ ...draft, tipo: event.target.value as ReportType })}><option value="consumo">Consumo despachado</option><option value="tickets">Tickets</option><option value="despachos">Despachos</option><option value="movimientos">Movimientos de inventario</option></select></label>
-      <label>Desde<input type="date" value={draft.desde} onChange={(event) => setDraft({ ...draft, desde: event.target.value })} /></label>
-      <label>Hasta<input type="date" value={draft.hasta} min={draft.desde || undefined} onChange={(event) => setDraft({ ...draft, hasta: event.target.value })} /></label>
-      <label>Departamento<select value={draft.departamentoId} onChange={(event) => setDraft({ ...draft, departamentoId: event.target.value })}><option value="">Todos</option>{catalogs.departments.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-      <label>Combustible<select value={draft.combustibleId} onChange={(event) => setDraft({ ...draft, combustibleId: event.target.value })}><option value="">Todos</option>{catalogs.fuelTypes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-      <label>Empleado<select value={draft.empleadoId} onChange={(event) => setDraft({ ...draft, empleadoId: event.target.value })}><option value="">Todos</option>{catalogs.employees.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-      <label>Vehículo<select value={draft.vehiculoId} onChange={(event) => setDraft({ ...draft, vehiculoId: event.target.value })}><option value="">Todos</option>{catalogs.vehicles.map((item) => <option key={item.id} value={item.id}>{item.plate}</option>)}</select></label>
-      <label>Estación<select value={draft.estacionId} onChange={(event) => setDraft({ ...draft, estacionId: event.target.value })}><option value="">Todas</option>{catalogs.stations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-      {draft.tipo !== 'movimientos' && <label>Estado<select value={draft.estado} onChange={(event) => setDraft({ ...draft, estado: event.target.value })}><option value="">Todos</option>{['CREADO', 'PENDIENTE', 'ENVIADO', 'CONSUMIDO', 'ANULADO', 'PROXIMO_A_VENCER', 'VENCIDO'].map((status) => <option key={status} value={status}>{status.replaceAll('_', ' ')}</option>)}</select></label>}
-      <div className="report-filter-actions"><button className="primary-button" onClick={applyFilters} disabled={loading}><RefreshCw size={15} /> Aplicar filtros</button><button className="secondary-button" onClick={clearFilters}>Limpiar</button></div>
-    </section>
+    <ReportFiltersPanel draft={draft} setDraft={setDraft} loading={loading} onApply={applyFilters} onClear={clearFilters} />
     {error && <div className="error-banner" role="alert">{error}</div>}
     <p className="muted report-range">{report?.rangoUtc ?? 'Fechas operacionales UTC, inicio y fin inclusivos.'}</p>
     <section className="metrics-grid metrics-3">
